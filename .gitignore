@@ -1,0 +1,17 @@
+# Generated art output
+art_cache/
+frame_tv_art/
+frame_tv_art_*/
+
+# Runtime state and logs
+batch_state.json
+batch_build.log
+frame_art.log
+tv_token.txt
+
+# Test artifacts
+test_painting.jpg
+
+# Python
+__pycache__/
+*.pyc
