@@ -1,0 +1,17 @@
+# Samsung Frame TV WebSocket API
+samsungtvws[async,encrypted]
+
+# Image processing
+Pillow>=10.0.0
+
+# HTTP requests for museum APIs
+requests>=2.31.0
+
+# Scheduling
+schedule>=1.2.0
+
+# Configuration
+pyyaml>=6.0
+
+# Color science for gallery-quality processing
+colorthief>=0.2.1

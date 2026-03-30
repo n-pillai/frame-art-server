@@ -1,0 +1,272 @@
+# =============================================================================
+# Frame Art Server Configuration
+# =============================================================================
+
+# --- Samsung Frame TV ---
+tv:
+  ip: "192.168.1.XXX"          # Your Frame TV's static IP address
+  port: 8002                    # Default WebSocket port (8001 for non-SSL)
+  token_file: "tv_token.txt"    # Saved auth token after first pairing
+
+# --- Display Settings ---
+display:
+  resolution: [3840, 2160]      # 4K UHD (use [1920, 1080] for 32" Frame)
+
+  # Matte style applied via the TV's API
+  # Options: none, modernthin, modern, modernwide, flexible,
+  #          shadowbox, panoramic, triptych, mix, squares
+  matte_type: "none"   # Set to "none" for crop-to-fill images (no TV-side border)
+
+  # Custom matte color (when using software matte for non-16:9 art)
+  # Options: neutral, warm, cool, or a hex color like "#2C2C2C"
+  matte_color: "neutral"
+
+  # How to handle art that isn't 16:9
+  # Options: crop (center-crop to fill), matte (add border), stretch (not recommended)
+  # In crop mode, only landscape images (aspect ratio >= 1.3) are accepted.
+  # Portraits and square images are automatically skipped.
+  aspect_mode: "crop"
+
+# --- Art Sources ---
+art_sources:
+  # When true, only accept works by well-known artists (Monet, Van Gogh,
+  # Rembrandt, etc.). Great for the first USB rotation — "greatest hits" mode.
+  # Set to false for a broader, more eclectic mix.
+  major_artists_only: true
+
+  met_museum:
+    enabled: true
+    # Mix of artist-specific and genre-based queries for broader coverage.
+    # The script searches the European Paintings (dept 11) and Modern Art
+    # (dept 21) departments first, then falls back to all departments.
+    queries:
+      # Genre / style queries (cast a wider net)
+      - "landscape painting"
+      - "oil on canvas landscape"
+      - "impressionist painting"
+      - "seascape"
+      - "sunset painting"
+      - "river landscape"
+      - "mountain landscape"
+      # Artist-specific queries
+      - "Claude Monet"
+      - "Vincent van Gogh"
+      - "J.M.W. Turner"
+      - "Winslow Homer"
+      - "Camille Pissarro"
+      - "Pierre-Auguste Renoir"
+      - "Paul Cézanne"
+      - "Frederic Edwin Church"
+      - "Albert Bierstadt"
+      - "Thomas Cole"
+      - "Rembrandt"
+      - "Caspar David Friedrich"
+      - "John Constable"
+      - "Gustave Courbet"
+      - "Corot landscape"
+      - "Hokusai"
+      - "Hiroshige"
+      - "Childe Hassam"
+      - "Winslow Homer seascape"
+      - "Millais"
+      - "Waterhouse"
+      - "Edward Hopper"
+      - "Isaac Levitan"
+    public_domain_only: true
+
+  rijksmuseum:
+    enabled: false   # Linked Data API doesn't support search; Rijks paintings available via Wikimedia
+    queries:
+      - "Vermeer"
+      - "Rembrandt"
+      - "Ruisdael"
+      - "Hobbema"
+      - "Cuyp"
+    types:
+      - "painting"
+
+  art_institute_chicago:
+    enabled: true
+    queries:
+      - "Claude Monet"
+      - "Pierre-Auguste Renoir"
+      - "Gustave Caillebotte"
+      - "Paul Cézanne"
+      - "Alfred Sisley"
+      - "Camille Pissarro"
+      - "Georges Seurat"
+      - "Vincent van Gogh"
+      - "Edward Hopper"
+      - "Georgia O'Keeffe"
+      - "Winslow Homer"
+
+  cleveland_museum:
+    enabled: true
+    queries:
+      - "Monet"
+      - "Turner"
+      - "Frederic Church"
+      - "Albert Bierstadt"
+      - "Courbet"
+      - "Corot"
+      - "Sorolla"
+      - "Aivazovsky"
+      - "Childe Hassam"
+      - "Winslow Homer"
+      - "Constable"
+
+  wikimedia_commons:
+    enabled: true
+    # Wikimedia Commons hosts high-res scans from museums worldwide.
+    # This is our gateway to the Louvre, Orsay, NGA, National Gallery London,
+    # Prado, Uffizi, and many others — all through one API.
+    categories:
+      # --- By museum collection (major world museums) ---
+      - "Landscape_paintings_in_the_Louvre"
+      - "Landscape_paintings_in_the_Musée_d'Orsay"
+      - "Paintings_in_the_National_Gallery,_London"
+      - "Landscape_paintings_in_the_National_Gallery_of_Art"
+      - "Paintings_in_the_Museo_del_Prado"
+      - "Paintings_in_the_Uffizi_Gallery"
+      - "Paintings_in_the_Hermitage"
+      - "Paintings_in_the_Musée_de_l'Orangerie"
+      - "Paintings_in_the_Alte_Pinakothek"
+      - "Paintings_in_the_Kunsthistorisches_Museum"
+      # --- By famous artist ---
+      - "Paintings_by_Claude_Monet"
+      - "Paintings_by_J._M._W._Turner"
+      - "Paintings_by_John_Constable"
+      - "Paintings_by_Caspar_David_Friedrich"
+      - "Paintings_by_Ivan_Aivazovsky"
+      - "Paintings_by_Joaquín_Sorolla"
+      - "Paintings_by_Camille_Pissarro"
+      - "Paintings_by_Alfred_Sisley"
+      - "Paintings_by_Albert_Bierstadt"
+      - "Paintings_by_Frederic_Edwin_Church"
+      - "Paintings_by_Thomas_Cole"
+      - "Paintings_by_Gustave_Courbet"
+      - "Paintings_by_Jean-Baptiste-Camille_Corot"
+      - "Paintings_by_Claude_Lorrain"
+      # --- Pre-Raphaelites & British ---
+      - "Paintings_by_John_Everett_Millais"
+      - "Paintings_by_John_William_Waterhouse"
+      - "Paintings_by_Edward_Burne-Jones"
+      - "Paintings_by_Dante_Gabriel_Rossetti"
+      - "Paintings_by_Frederic_Leighton"
+      - "Paintings_by_John_Atkinson_Grimshaw"
+      # --- Landscape & nature specialists ---
+      - "Paintings_by_Isaac_Levitan"
+      - "Paintings_by_Arkhip_Kuindzhi"
+      - "Paintings_by_Ivan_Shishkin"
+      # --- Maritime ---
+      - "Paintings_by_Willem_van_de_Velde_the_Younger"
+      # --- Abstract Expressionism ---
+      - "Paintings_by_Mark_Rothko"
+      - "Paintings_by_Jackson_Pollock"
+      - "Paintings_by_Helen_Frankenthaler"
+      # --- More Impressionism ---
+      - "Paintings_by_Childe_Hassam"
+      - "Paintings_by_Frédéric_Bazille"
+      # --- Indian art ---
+      - "Paintings_by_Raja_Ravi_Varma"
+      - "Paintings_by_Amrita_Sher-Gil"
+      - "Paintings_by_M._F._Husain"
+    queries:
+      - "Raja Ravi Varma painting"
+      - "Amrita Sher-Gil painting"
+      - "M.F. Husain painting"
+      - "Ivan Aivazovsky seascape"
+      - "Joaquín Sorolla beach painting"
+      - "Turner landscape painting"
+      - "Monet landscape painting Louvre"
+      - "Constable landscape painting"
+      - "Pissarro landscape"
+      - "Sisley landscape"
+      - "Isaac Levitan landscape"
+      - "Arkhip Kuindzhi painting"
+      - "Childe Hassam impressionist"
+      - "John William Waterhouse painting"
+      - "Edward Burne-Jones painting"
+      - "Mark Rothko painting"
+      - "Atkinson Grimshaw moonlight"
+
+  # Local folder of your own images
+  local:
+    enabled: false
+    path: "./my_art"
+
+# --- Scheduling ---
+schedule:
+  # Rotation mode: "interval" or "time_of_day"
+  mode: "time_of_day"
+
+  # For interval mode: how often to change art
+  interval_hours: 4
+
+  # For time_of_day mode: schedule different art styles by time
+  # Each slot defines a time window and preferred search queries
+  time_slots:
+    morning:
+      start: "06:00"
+      end: "11:59"
+      mood: "bright"       # Picks from: landscape, impressionist, watercolor
+      queries: ["impressionist landscape", "morning light painting", "watercolor nature"]
+
+    afternoon:
+      start: "12:00"
+      end: "17:59"
+      mood: "vibrant"      # Picks from: renaissance, dutch golden age, portrait
+      queries: ["renaissance masterpiece", "dutch golden age", "classical portrait"]
+
+    evening:
+      start: "18:00"
+      end: "22:59"
+      mood: "warm"         # Picks from: warm tones, cozy scenes
+      queries: ["warm landscape painting", "firelight painting", "evening scene"]
+
+    night:
+      start: "23:00"
+      end: "05:59"
+      mood: "calm"         # Picks from: starry night, moonlit, dark tones
+      queries: ["night sky painting", "moonlit landscape", "dark still life"]
+
+# --- Metadata Overlay ---
+overlay:
+  enabled: true                 # Show title + artist on the painting
+  position: "top_left"          # "top_left" or "top_right"
+  opacity: 0.90                 # 0.0 (invisible) to 1.0 (fully opaque)
+
+# --- Image Processing ---
+processing:
+  # Target quality (1-100) for JPEG output
+  jpeg_quality: 95
+
+  # Apply subtle sharpening after resize (recommended for 4K display)
+  sharpen: true
+
+  # Color temperature adjustment to match Frame TV's warm display
+  # Range: -20 (cooler) to +20 (warmer), 0 = no adjustment
+  warmth_adjust: 3
+
+  # Minimum source image dimensions (skip smaller images)
+  min_width: 1500
+  min_height: 1000
+
+# --- Storage ---
+storage:
+  # Where to cache downloaded art
+  cache_dir: "./art_cache"
+
+  # Max images to keep cached locally
+  max_cached: 500
+
+  # Track what's been shown to avoid repeats
+  history_file: "./art_history.json"
+
+  # How many images before allowing repeats
+  history_size: 200
+
+# --- Logging ---
+logging:
+  level: "INFO"             # DEBUG, INFO, WARNING, ERROR
+  file: "./frame_art.log"
