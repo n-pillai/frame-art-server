@@ -210,33 +210,52 @@ def search_met(query: str, public_domain_only: bool = True, department_id: int =
         return []
 
 
-def get_met_object(object_id: int) -> Optional[dict]:
-    """Fetch a single Met object record with image URL and metadata."""
-    try:
-        resp = requests.get(f"{MET_OBJECT}/{object_id}", timeout=15)
-        resp.raise_for_status()
-        obj = resp.json()
+def get_met_object(object_id: int, max_retries: int = 3) -> Optional[dict]:
+    """Fetch a single Met object record with image URL and metadata.
 
-        image_url = obj.get("primaryImage", "")
-        if not image_url:
-            return None
+    Retries with exponential backoff on 403/429 (rate limiting).
+    """
+    for attempt in range(max_retries):
+        try:
+            resp = requests.get(f"{MET_OBJECT}/{object_id}", timeout=15)
 
-        return {
-            "source": "met_museum",
-            "id": str(object_id),
-            "title": obj.get("title", "Untitled"),
-            "artist": obj.get("artistDisplayName", "Unknown"),
-            "date": obj.get("objectDate", ""),
-            "medium": obj.get("medium", ""),
-            "department": obj.get("department", ""),
-            "image_url": image_url,
-            "dimensions": obj.get("dimensions", ""),
-            "culture": obj.get("culture", ""),
-            "museum": "The Metropolitan Museum of Art",
-        }
-    except Exception as e:
-        logger.error(f"Met object {object_id} fetch failed: {e}")
-        return None
+            # Rate-limited — back off and retry
+            if resp.status_code in (403, 429):
+                wait = 2 ** attempt  # 1s, 2s, 4s
+                logger.warning(f"Met rate-limited (HTTP {resp.status_code}) on object {object_id}, "
+                               f"retrying in {wait}s (attempt {attempt + 1}/{max_retries})")
+                time.sleep(wait)
+                continue
+
+            resp.raise_for_status()
+            obj = resp.json()
+
+            image_url = obj.get("primaryImage", "")
+            if not image_url:
+                return None
+
+            return {
+                "source": "met_museum",
+                "id": str(object_id),
+                "title": obj.get("title", "Untitled"),
+                "artist": obj.get("artistDisplayName", "Unknown"),
+                "date": obj.get("objectDate", ""),
+                "medium": obj.get("medium", ""),
+                "department": obj.get("department", ""),
+                "image_url": image_url,
+                "dimensions": obj.get("dimensions", ""),
+                "culture": obj.get("culture", ""),
+                "museum": "The Metropolitan Museum of Art",
+            }
+        except Exception as e:
+            if attempt < max_retries - 1:
+                wait = 2 ** attempt
+                logger.warning(f"Met object {object_id} fetch error: {e}, retrying in {wait}s")
+                time.sleep(wait)
+            else:
+                logger.error(f"Met object {object_id} fetch failed after {max_retries} attempts: {e}")
+                return None
+    return None
 
 
 def fetch_random_met_artwork(
@@ -471,21 +490,32 @@ def search_aic(
     limit: int = 100,
 ) -> list[dict]:
     """
-    Search the Art Institute of Chicago for public domain paintings.
-    Filters for artwork_type_title=Painting at the API level to avoid
-    drawings, prints, and photographs in the results.
+    Search the Art Institute of Chicago for public domain artworks.
+    Uses POST with Elasticsearch JSON body for reliable filtering.
+    Painting filtering is done client-side via is_painting() in the gatherer.
     Returns a list of artwork dicts with image_id for IIIF retrieval.
     """
-    params = {
+    # AIC's Elasticsearch API is more reliable with POST + JSON body
+    # than with query-string term filters (which break at limit > ~30).
+    payload = {
         "q": query,
         "limit": limit,
-        "fields": "id,title,image_id,artist_title,date_display,is_public_domain,thumbnail,classification_title,medium_display,artwork_type_title",
-        "query[term][is_public_domain]": "true",
-        "query[term][artwork_type_title]": "Painting",
+        "fields": [
+            "id", "title", "image_id", "artist_title", "date_display",
+            "is_public_domain", "thumbnail", "classification_title",
+            "medium_display", "artwork_type_title",
+        ],
+        "query": {
+            "bool": {
+                "must": [
+                    {"term": {"is_public_domain": True}},
+                ],
+            },
+        },
     }
 
     try:
-        resp = requests.get(AIC_SEARCH, params=params, timeout=15)
+        resp = requests.post(AIC_SEARCH, json=payload, timeout=15)
         resp.raise_for_status()
         data = resp.json()
         artworks = data.get("data", [])
@@ -494,8 +524,26 @@ def search_aic(
         logger.info(f"AIC search '{query}': {len(artworks)} results")
         return artworks
     except Exception as e:
-        logger.error(f"AIC search failed for '{query}': {e}")
-        return []
+        # Fallback: simple GET without painting filter
+        logger.warning(f"AIC POST search failed for '{query}': {e}, trying GET fallback...")
+        try:
+            params = {
+                "q": query,
+                "limit": limit,
+                "fields": "id,title,image_id,artist_title,date_display,is_public_domain,thumbnail,classification_title,medium_display,artwork_type_title",
+            }
+            resp = requests.get(AIC_SEARCH, params=params, timeout=15)
+            resp.raise_for_status()
+            data = resp.json()
+            artworks = data.get("data", [])
+            artworks = [a for a in artworks if a.get("image_id")]
+            # Client-side public domain filter
+            artworks = [a for a in artworks if a.get("is_public_domain")]
+            logger.info(f"AIC search '{query}' (GET fallback): {len(artworks)} results")
+            return artworks
+        except Exception as e2:
+            logger.error(f"AIC search failed for '{query}': {e2}")
+            return []
 
 
 def fetch_random_aic_artwork(queries: list[str], landscape_only: bool = True) -> Optional[dict]:
@@ -550,11 +598,12 @@ CMA_SEARCH = "https://openaccess-api.clevelandart.org/api/artworks/"
 def search_cma(
     query: str,
     limit: int = 100,
-    art_type: str = "Painting",
+    art_type: str = "",
 ) -> list[dict]:
     """
     Search the Cleveland Museum of Art for artworks with images.
-    Defaults to paintings only to avoid drawings, prints, and photographs.
+    Painting filtering is done client-side via is_painting() in the gatherer,
+    because CMA's 'type' field is inconsistent and drops many valid paintings.
     Returns artwork dicts with direct image URLs.
     """
     params = {
@@ -971,7 +1020,13 @@ def download_image(url_or_path: str, cache_dir: str) -> Optional[str]:
 
     try:
         logger.info(f"Downloading: {url_or_path[:100]}...")
-        resp = requests.get(url_or_path, timeout=60, stream=True)
+        # Use the Wikimedia session (with proper User-Agent) for Wikimedia URLs,
+        # otherwise Wikimedia returns 403 per their UA policy.
+        if "wikimedia.org" in url_or_path or "wikipedia.org" in url_or_path:
+            session = _wiki_session
+        else:
+            session = requests
+        resp = session.get(url_or_path, timeout=60, stream=True)
         resp.raise_for_status()
         with open(local_path, "wb") as f:
             for chunk in resp.iter_content(chunk_size=8192):
