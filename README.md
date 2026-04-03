@@ -2,42 +2,36 @@
 
 Gallery-quality art for your Samsung Frame TV — powered by museum APIs, no subscription needed.
 
-Pulls public domain masterpieces from five museum sources (including a Wikimedia Commons gateway to the Louvre, Orsay, Prado, and more), filters for landscape-only works by major artists, processes them to 4K with metadata labels, and outputs them ready for your Frame TV via USB.
+Pulls public domain masterpieces from four museum APIs plus Wikimedia Commons (a gateway to the Louvre, Orsay, Prado, and dozens more), filters for landscape works by major artists, processes them to 4K with metadata labels, and outputs them ready for your Frame TV via USB.
+
+A free, open-source alternative to Samsung's $5.99/month Art Store subscription.
 
 ---
 
 ## How It Works
 
-Run a script on your laptop, copy the output to a USB drive, plug it into the TV. No server, no Pi, no subscription, no ongoing maintenance.
-
 ```
-Museum APIs  ──►  Filter  ──►  Download  ──►  Process  ──►  USB / TV
-(5 sources)      (landscape,   (hi-res       (4K crop,     (plug in
-                  major         originals)     sharpen,      and go)
-                  artists)                     label)
+Museum APIs  -->  Filter  -->  Download  -->  Process  -->  USB --> TV
+(4 APIs +        (landscape,   (hi-res       (4K crop,     (plug in
+ Wikimedia)       major         originals)    sharpen,       and go)
+                  artists)                    sRGB, label)
 ```
 
 ### Art Sources
 
-The system pulls from five free, no-API-key-needed sources:
+The system pulls from free, no-API-key-needed sources:
 
 - **Metropolitan Museum of Art** — 490,000+ public domain works (CC0)
-- **Rijksmuseum** — 800,000+ works including Vermeer, Rembrandt, Ruisdael
 - **Art Institute of Chicago** — major Impressionist collection (IIIF image service)
 - **Cleveland Museum of Art** — strong landscape and European painting collection
 - **Wikimedia Commons** — gateway to museums without their own APIs:
-  - Musée du Louvre
-  - Musée d'Orsay
+  - Musee du Louvre, Musee d'Orsay, Musee de l'Orangerie
   - National Gallery, London
-  - National Gallery of Art (Washington, D.C.)
-  - Museo del Prado
-  - Uffizi Gallery
+  - National Gallery of Art, Washington D.C.
+  - Museo del Prado, Uffizi Gallery
   - Hermitage Museum
-  - Musée de l'Orangerie
-  - Alte Pinakothek
-  - Kunsthistorisches Museum
-
-Wikimedia categories are walked recursively (up to 2 levels deep) to find actual image files within deeply nested artist and museum collection categories.
+  - Alte Pinakothek, Kunsthistorisches Museum
+  - Plus artist-specific categories (Monet, Turner, Constable, Aivazovsky, etc.)
 
 ---
 
@@ -56,22 +50,18 @@ pip install Pillow requests pyyaml
 python batch_build.py --count 200
 
 # Or save directly to a USB drive
-python batch_build.py --count 300 --output /Volumes/USB_DRIVE/frame_art
+python batch_build.py --count 300 --output E:\frame_art
 ```
 
-The script searches all configured sources, downloads high-res public domain originals, filters for landscape orientation and major artists, processes each to 3840x2160 with a metadata label, and saves to `./frame_tv_art/` (or your chosen directory).
+The script searches all configured sources, downloads high-res public domain originals, filters for landscape orientation and major artists, converts colors to sRGB, processes each to 3840x2160 with a metadata label, and saves to `./frame_tv_art/`.
 
 ### 3. Load onto the Frame TV
 
-**USB method:**
-1. Copy the `frame_tv_art` folder to a USB drive
+1. Copy the `frame_tv_art` folder to a USB drive (FAT32 or exFAT)
 2. Plug USB into the One Connect Box
 3. On the TV: Menu > Art Mode > My Photos > import from USB
-4. Set to shuffle slideshow
-
-**SmartThings app method:**
-1. Open SmartThings > select your Frame TV > Art Mode > Add Your Photos
-2. Select images from your phone/tablet
+4. Set each image's mat to "No Mat" (unfortunately Samsung has no global setting for this)
+5. Set to shuffle slideshow
 
 ### 4. Refresh whenever you want
 
@@ -83,13 +73,31 @@ Run the script again for a fresh batch. Set `major_artists_only: false` in confi
 
 ### Landscape Only
 
-Only images with an aspect ratio of 1.3 or wider (roughly 4:3 and up) are accepted. Portraits, squares, and near-square images are automatically skipped at every stage of the pipeline — during API queries, after download, and again during processing. This means every image fills the 16:9 frame naturally with only a gentle center crop, no awkward stretching or heavy cropping.
+Only images with an aspect ratio of 1.3 or wider (roughly 4:3 and up) are accepted. Portraits, squares, and near-square images are automatically skipped. Every image fills the 16:9 frame naturally with only a gentle center crop.
 
 ### Major Artists Only
 
-When `major_artists_only: true` (the default), only works by ~90 well-known artists are accepted. The list spans Impressionism (Monet, Renoir, Cézanne), Dutch Masters (Rembrandt, Vermeer, Ruisdael), Renaissance (Leonardo, Raphael, Titian), Romanticism (Turner, Constable, Delacroix), Hudson River School (Church, Cole, Bierstadt), Japanese art (Hokusai, Hiroshige), Modern (Klimt, Kandinsky, Matisse, Hopper), Indian art (Raja Ravi Varma, Amrita Sher-Gil), and others.
+When `major_artists_only: true` (the default), only works by ~90 well-known artists are accepted. The list spans Impressionism, Dutch Masters, Renaissance, Romanticism, Hudson River School, Japanese art, Modern, Indian art, and others.
 
-Set to `false` for a wider net that includes lesser-known artists.
+### Painting Filter
+
+Non-paintings (drawings, prints, photographs, ceramics, sculptures, textiles, etc.) are filtered out using medium and classification metadata. Studies, fragments, and fan mounts are also excluded by title.
+
+### Per-Artist Cap
+
+No single artist can have more than `max_per_artist` works (default: 4) in a batch, preventing any one artist from dominating the gallery. Featured artists have their own caps.
+
+### Featured Artists
+
+Specify artists who should always have a minimum number of works in every batch:
+
+```yaml
+featured_artists:
+  - name: "Raja Ravi Varma"
+    min_count: 3
+  - name: "Amrita Sher-Gil"
+    min_count: 2
+```
 
 ---
 
@@ -97,12 +105,19 @@ Set to `false` for a wider net that includes lesser-known artists.
 
 Every image goes through a gallery-quality pipeline:
 
-1. **Landscape check** — rejects anything with aspect ratio below 1.3
-2. **Size validation** — rejects images below 1500x1000px
-3. **Center crop to 16:9** — gentle crop using the center of the composition
-4. **4K resize** — Lanczos resampling to 3840x2160
-5. **Sharpening** — subtle unsharp mask tuned for TV viewing distance
-6. **Metadata label** — title, artist, and museum name overlaid in the top-left corner with a dark semi-transparent scrim (35% opacity, rounded rectangle with feathered edges). Font sizes are calibrated for readability on a 65" TV at normal viewing distance.
+1. **Color profile conversion** — ICC profiles (Adobe RGB, ProPhoto, etc.) are converted to sRGB so colors display correctly on the TV
+2. **Landscape check** — rejects anything with aspect ratio below 1.3
+3. **Size validation** — rejects images below 1500x1000px
+4. **Center crop to 16:9** — gentle crop using the center of the composition
+5. **4K resize** — Lanczos resampling to exactly 3840x2160
+6. **Sharpening** — subtle unsharp mask tuned for TV viewing distance
+7. **Warmth adjustment** — slight warm shift to match the Frame TV's display characteristics
+8. **Metadata label** — title, artist, date, and museum overlaid with a dark semi-transparent scrim. Font sizes calibrated for a 65" TV at normal viewing distance
+9. **Metadata stripping** — all EXIF, ICC profiles, and orientation flags are removed from the output file
+
+### Label Sanitization
+
+Metadata from museum APIs is cleaned before display: HTML tags stripped, non-English titles translated or removed, URLs and Wikidata markup filtered, artist bios truncated, "Unknown date" suppressed, and museum names validated (no "Wikimedia Commons" or "Google Cultural Institute").
 
 ---
 
@@ -114,64 +129,35 @@ Edit `config.yaml` to customize:
 ```yaml
 art_sources:
   major_artists_only: true    # "greatest hits" mode
+  max_per_artist: 4           # variety cap
 
   met_museum:
     queries:
       - "Claude Monet"
-      - "Vincent van Gogh"
-      - "Winslow Homer"
+      - "landscape painting"
 
   wikimedia_commons:
     categories:
       - "Landscape_paintings_in_the_Louvre"
       - "Paintings_by_Claude_Monet"
-      - "Paintings_in_the_Hermitage"
     queries:
       - "Turner landscape painting"
-      - "Sorolla beach painting"
 ```
 
 **Display settings:**
 ```yaml
 display:
   resolution: [3840, 2160]    # 4K (use [1920, 1080] for 32" Frame)
-  aspect_mode: "crop"         # center-crop to fill (landscape images only)
+  aspect_mode: "crop"         # center-crop to fill
 ```
 
 **Metadata overlay:**
 ```yaml
 overlay:
   enabled: true
-  position: "top_left"        # label with dark scrim
+  position: "top_left"
   opacity: 0.90
 ```
-
----
-
-## Advanced: Raspberry Pi Daemon
-
-For fully automated rotation (new art pushed to the TV on a schedule):
-
-```bash
-sudo bash install.sh
-sudo nano /opt/frame-art-server/config.yaml   # set TV IP
-sudo venv/bin/python frame_art_server.py --once  # pair with TV
-sudo systemctl start frame-art                   # run as daemon
-```
-
-The Pi mode supports time-of-day scheduling with different art moods (bright mornings, warm evenings, calm nights) — see `schedule.time_slots` in config.yaml.
-
----
-
-## Troubleshooting
-
-**Images look wrong on the TV** — Check `display.resolution` in config.yaml. Use `[3840, 2160]` for all Frame TVs except the 32" model (which needs `[1920, 1080]`).
-
-**"Skipping non-landscape image" warnings** — Working as intended. The pipeline rejects portraits and square images so only properly filling landscapes make it to the TV.
-
-**"Skipping minor artist" log messages** — Set `major_artists_only: false` in config.yaml if you want a broader mix.
-
-**Very few Wikimedia results** — Some categories are deeply nested. The code recurses 2 levels into subcategories, but some collections may need specific category names. Check the Wikimedia Commons category browser to find the right name.
 
 ---
 
@@ -179,16 +165,20 @@ The Pi mode supports time-of-day scheduling with different art moods (bright mor
 
 ```
 frame-art-server/
-├── batch_build.py         # ← START HERE — batch download + process
-├── frame_art_server.py    # Advanced: Pi daemon with live rotation
-├── art_sources.py         # Museum API integrations (Met, Rijks, AIC, CMA, Wikimedia)
-├── image_processor.py     # 4K processing, crop, sharpen, metadata overlay
-├── tv_controller.py       # Samsung Frame TV WebSocket interface
-├── scheduler.py           # Time-based rotation logic (Pi mode)
-├── config.yaml            # Your configuration
-├── requirements.txt       # Python dependencies
-└── install.sh             # Pi installer
+  batch_build.py       # Main script -- run this to build a batch
+  art_sources.py       # Museum API integrations (Met, AIC, CMA, Wikimedia)
+  image_processor.py   # 4K processing, crop, sharpen, sRGB, metadata overlay
+  config.yaml          # Configuration (queries, sources, display settings)
+  requirements.txt     # Python dependencies
 ```
+
+---
+
+## Known Limitations
+
+**Samsung Frame TV mat/border:** The TV defaults to showing a mat border on every image and there is no global "no mat" setting. You need to set each image to "No Mat" individually through the TV's menu. Samsung has acknowledged this as a limitation but hasn't addressed it in firmware updates.
+
+**Wikimedia museum attribution:** When art comes through Wikimedia Commons, the museum name is inferred from the category or credit metadata. Some images may show no museum if the source metadata is incomplete.
 
 ---
 
