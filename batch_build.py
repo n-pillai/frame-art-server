@@ -46,6 +46,7 @@ from art_sources import (
     is_landscape_enough,
     is_major_artist,
     is_painting,
+    is_display_worthy,
 )
 from image_processor import process_image
 
@@ -66,6 +67,266 @@ logging.basicConfig(
     ],
 )
 logger = logging.getLogger("batch_build")
+
+
+# ---------------------------------------------------------------------------
+# Label sanitization — common-sense cleanup before text goes on the image
+# ---------------------------------------------------------------------------
+import re as _re
+
+# Characters that indicate the text is garbled / HTML residue / not human-readable
+_GARBAGE_PATTERNS = _re.compile(
+    r"<[^>]+>"           # HTML tags
+    r"|QS:\S+"           # Wikidata QS: entries
+    r"|Q\d{5,}"          # Wikidata Q-IDs
+    r"|P\d{3,}"          # Wikidata P-IDs
+    r"|https?://\S+"     # URLs
+    r"|www\.\S+"         # URLs without protocol
+    r"|class="           # CSS class attributes
+    r"|style="           # CSS style attributes
+    r'|display:\s*none'  # hidden CSS
+    r"|cite_ref"         # Wikipedia citation refs
+    r"|\{[^}]*\}"        # JSON/template braces
+)
+
+# Cyrillic, CJK, Arabic, Devanagari ranges — for title translation check
+_NON_LATIN = _re.compile(
+    r"[\u0400-\u04FF"    # Cyrillic
+    r"\u4E00-\u9FFF"     # CJK
+    r"\u0600-\u06FF"     # Arabic
+    r"\u0900-\u097F"     # Devanagari
+    r"\u3040-\u309F"     # Hiragana
+    r"\u30A0-\u30FF"     # Katakana
+    r"]"
+)
+
+
+def sanitize_label(title: str, artist: str, date: str, museum: str) -> tuple:
+    """
+    Clean up all four label fields so they make sense to an English-speaking
+    viewer on a TV screen.
+
+    Rules:
+      - Strip any surviving HTML tags, URLs, Wikidata markup
+      - Remove non-Latin text (Cyrillic, CJK, etc.) but keep the Latin portion
+      - Collapse whitespace
+      - Cap field lengths to prevent label overflow
+      - Clean up artist field (remove life dates in parentheses if too long)
+      - Ensure museum field is meaningful (not a URL or empty)
+      - Reject obviously garbled labels entirely
+    """
+    def _clean(text: str) -> str:
+        """Strip HTML, URLs, Wikidata junk, collapse whitespace."""
+        if not text:
+            return ""
+        # Remove hidden divs first (Wikidata junk blocks)
+        text = _re.sub(r'<div[^>]*style="display:\s*none[^"]*"[^>]*>.*?</div>',
+                        "", text, flags=_re.DOTALL | _re.IGNORECASE)
+        # Remove <sup> citation blocks entirely (including inner text)
+        text = _re.sub(r"<sup[^>]*>.*?</sup>", "", text, flags=_re.DOTALL | _re.IGNORECASE)
+        # Remove all HTML tags
+        text = _re.sub(r"<[^>]+>", "", text)
+        # Decode HTML entities: &amp; -> &, &quot; -> ", etc.
+        import html as _html_mod
+        text = _html_mod.unescape(text)
+        # Remove remaining garbage patterns
+        text = _GARBAGE_PATTERNS.sub("", text)
+        text = _re.sub(r"\s+", " ", text).strip()
+        return text
+
+    def _latin_only(text: str) -> str:
+        """Extract just the Latin-script portion if mixed with non-Latin."""
+        if not text:
+            return ""
+        if not _NON_LATIN.search(text):
+            return text  # All Latin already
+        # Remove non-Latin characters but keep Latin, digits, punctuation, spaces
+        latin = _re.sub(r"[^\x00-\x7F\u00C0-\u024F\u1E00-\u1EFF]+", " ", text)
+        latin = _re.sub(r"\s+", " ", latin).strip()
+        return latin
+
+    def _clean_artist(text: str) -> str:
+        """Clean artist name — shorten overly verbose attribution strings."""
+        if not text:
+            return "Unknown"
+        text = _clean(text)
+        text = _latin_only(text)
+        if not text:
+            return "Unknown"
+        # If the artist string is very long (verbose attribution), try to
+        # extract just the name before any parenthetical biography
+        if len(text) > 60:
+            # "Albert Bierstadt (American, born Prussia, 1830–1902)" -> "Albert Bierstadt"
+            paren = text.find("(")
+            if paren > 5:
+                text = text[:paren].strip()
+        # Remove trailing commas, semicolons
+        text = text.rstrip(",;. ")
+        return text[:80]
+
+    # Language labels used in Wikimedia multilingual titles
+    _LANGUAGES = (
+        "english", "french", "german", "dutch", "italian", "spanish",
+        "portuguese", "russian", "chinese", "japanese", "korean",
+        "arabic", "hindi", "swedish", "norwegian", "danish", "finnish",
+        "polish", "czech", "hungarian", "romanian", "turkish", "greek",
+        "latin", "catalan", "basque", "galician",
+    )
+
+    def _extract_english_title(text: str) -> str:
+        """From a multilingual Wikimedia title, extract just the English portion.
+
+        Wikimedia titles often look like:
+          'German: Klassische Landschaft ... English: Landscape with Temple Ruins'
+          'French: Le Pont Neuf English: The New Bridge'
+          'Landscape with Ruins (German: Landschaft mit Ruinen)'
+        """
+        # Pattern 1: "English: <title>" somewhere in the string
+        eng_match = _re.search(r"(?:^|[;,]\s*)English:\s*(.+?)(?:\s*(?:German|French|Dutch|Italian|Spanish|Russian|Chinese|Japanese|Korean|Latin|Portuguese):|$)",
+                                text, flags=_re.IGNORECASE)
+        if eng_match:
+            return eng_match.group(1).strip()
+
+        # Pattern 2: "<Language>: <foreign text> <English text>" — the English
+        # part often follows after the foreign text without a label.
+        # Try to detect: if it starts with a language label, look for the
+        # transition to English words after the foreign block.
+        for lang in _LANGUAGES:
+            if text.lower().startswith(lang + ":"):
+                remainder = text[len(lang) + 1:].strip()
+                # If there's also an English-labeled section
+                eng_idx = remainder.lower().find("english:")
+                if eng_idx >= 0:
+                    return remainder[eng_idx + 8:].strip()
+                # Otherwise strip the language prefix and return what's left —
+                # it might still be in the foreign language, which we'll handle below
+                text = remainder
+                break
+
+        # Pattern 3: Mixed foreign + English without labels.
+        # e.g., "Klassische Landschaft mit... Landscape with Temple Ruins"
+        # Try to find where English words start after a run of foreign words.
+        # Look for common English art title starters after foreign text.
+        _ENG_STARTERS = r"\b(Landscape|Portrait|View|Scene|Still Life|The |A |An |Study|Night|Morning|Evening|Sunset|Sunrise|River|Lake|Mountain|Forest|Bridge|Garden|Harbor|Harbour|Church|Castle|Village|City|Street|Market|Battle|Dance|Feast|Storm|Calm|Coast|Shore|Bay|Sea|Ocean|Ship|Boat|Winter|Spring|Summer|Autumn|Interior|Exterior)"
+        eng_start = _re.search(_ENG_STARTERS, text)
+        if eng_start and eng_start.start() > 10:
+            # There's a substantial foreign prefix before the English part
+            candidate = text[eng_start.start():].strip()
+            if candidate and len(candidate) > 5 and not _likely_non_english(candidate):
+                return candidate
+
+        # Pattern 4: Parenthetical foreign text — "Landscape (Landschaft mit...)"
+        # Keep only the part outside the parentheses
+        if "(" in text:
+            outside = _re.sub(r"\([^)]*\)", "", text).strip()
+            if outside and len(outside) > 3:
+                text = outside
+
+        return text
+
+    # Common non-English words that indicate the title isn't in English
+    _NON_ENGLISH_MARKERS = {
+        "mit", "und", "von", "der", "die", "das", "des", "dem", "den",  # German
+        "avec", "dans", "sur", "les", "des", "une", "pour", "aux",      # French
+        "con", "del", "los", "las", "una", "por",                       # Spanish
+        "della", "nella", "delle", "degli", "sul", "alla",              # Italian
+        "van", "het", "een", "bij", "uit",                               # Dutch
+        "paysage", "landschaft", "paisaje", "paesaggio", "landschap",    # "landscape"
+    }
+
+    def _likely_non_english(text: str) -> bool:
+        """Heuristic: does this title look like it's in a non-English language?"""
+        words = text.lower().split()
+        if len(words) < 3:
+            return False  # Too short to tell
+        non_eng_count = sum(1 for w in words if w.strip(",.;:()") in _NON_ENGLISH_MARKERS)
+        return non_eng_count >= 2  # Two or more marker words = probably not English
+
+    def _clean_title(text: str) -> str:
+        """Clean title — extract English, remove HTML residue, non-Latin portions."""
+        if not text:
+            return "Untitled"
+        text = _clean(text)
+        # Handle titles wrapped in guillemets: «Title» -> Title
+        text = text.replace("\u00AB", "").replace("\u00BB", "")
+        # Extract Latin portion if mixed with Cyrillic/CJK
+        text = _latin_only(text)
+        if not text or len(text) < 2:
+            return "Untitled"
+        # Try to extract English from multilingual titles
+        text = _extract_english_title(text)
+        # Remove leading/trailing quotes and whitespace
+        text = text.strip("'\"` ")
+        # Remove language-label prefixes like "Russian:" or "French:"
+        for lang in _LANGUAGES:
+            if text.lower().startswith(lang + ":"):
+                text = text[len(lang) + 1:].strip()
+                break
+            if text.lower().startswith(lang + " "):
+                text = text[len(lang):].strip()
+                break
+        # If the remaining title is still clearly non-English, flag as Untitled
+        # rather than showing gibberish on the TV
+        if _likely_non_english(text):
+            return "Untitled"
+        # Clean up orphaned punctuation from removed text
+        text = _re.sub(r"^[\s.,;:]+|[\s.,;:]+$", "", text)
+        if not text or len(text) < 2:
+            return "Untitled"
+        return text[:100]
+
+    def _clean_date(text: str) -> str:
+        """Clean date — extract just the year/date portion.
+        Returns empty string for unknown/missing dates (never 'Unknown date')."""
+        if not text:
+            return ""
+        text = _clean(text)
+        text = _latin_only(text)
+        # Reject meaningless date strings
+        if text.lower() in ("unknown", "unknown date", "undated", "n.d.", "n/a", "none"):
+            return ""
+        # If it's still gibberish or too long, try to extract just a year
+        if len(text) > 30 or not text.strip():
+            years = _re.findall(r"\b(\d{4})\b", text)
+            if years:
+                return f"ca. {years[0]}" if len(years) == 1 else f"{years[0]}-{years[-1]}"
+            return ""
+        return text[:40]
+
+    def _clean_museum(text: str) -> str:
+        """Clean museum — ensure it's a real institution name, not a
+        Google Art Project ID, Wikimedia URL, or other junk."""
+        if not text:
+            return ""
+        text = _clean(text)
+        text = _latin_only(text)
+        lower = text.lower()
+        # Reject non-museum strings
+        _MUSEUM_REJECT = [
+            "wikimedia commons", "wikimedia", "commons",
+            "google cultural institute", "google art project",
+            "maximum zoom level", "zoom level",
+            "wikidata", "file:", "category:",
+            "on facebook", "on twitter", "on instagram",
+            "facebook.com", "twitter.com", "instagram.com",
+            ".blogspot", ".wordpress",
+        ]
+        for reject in _MUSEUM_REJECT:
+            if reject in lower:
+                return ""
+        # Reject if it looks like a hash/ID (alphanumeric gibberish)
+        if _re.match(r"^[A-Za-z0-9_-]{10,}$", text.split()[0] if text.split() else ""):
+            return ""
+        if not text or len(text) < 3:
+            return ""
+        return text[:80]
+
+    return (
+        _clean_title(title),
+        _clean_artist(artist),
+        _clean_date(date),
+        _clean_museum(museum),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -92,37 +353,58 @@ def save_state(state: dict, state_file: str = STATE_FILE):
 # ---------------------------------------------------------------------------
 # Met Museum batch fetcher
 # ---------------------------------------------------------------------------
-def gather_met_object_ids(queries: list[str], per_query: int = 100) -> list[int]:
+def gather_met_object_ids(queries: list[str], per_query: int = 100, max_ids: int = 0) -> list[int]:
     """
     Search the Met for multiple queries and gather a pool of object IDs.
     Searches the Paintings departments (11=European, 21=Modern) first to
     prioritise actual paintings over prints and drawings.
+
+    Args:
+        max_ids: Stop gathering once we have this many unique IDs (0 = no limit).
+                 This prevents over-fetching when we only need a few hundred.
+
     Returns a deduplicated, shuffled list.
     """
     all_ids = set()
 
+    def _budget_reached():
+        return max_ids > 0 and len(all_ids) >= max_ids
+
     # Search painting departments first — much higher hit rate
     PAINTING_DEPTS = [11, 21]  # European Paintings, Modern & Contemporary Art
     for query in queries:
+        if _budget_reached():
+            logger.info(f"Met budget reached ({len(all_ids)} IDs), stopping search")
+            break
         for dept in PAINTING_DEPTS:
+            if _budget_reached():
+                break
             logger.info(f"Searching Met (dept {dept}): '{query}'...")
             ids = search_met(query, public_domain_only=True, department_id=dept)
             if ids:
-                all_ids.update(ids)  # Keep ALL results — don't sub-sample
-                logger.info(f"  -> {len(ids)} IDs from dept {dept}")
+                all_ids.update(ids)
+                logger.info(f"  -> {len(ids)} IDs from dept {dept} (total: {len(all_ids)})")
             time.sleep(0.3)
 
-    # Also search without department filter for broader coverage
-    for query in queries:
-        logger.info(f"Searching Met (all depts): '{query}'...")
-        ids = search_met(query, public_domain_only=True)
-        if ids:
-            all_ids.update(ids)  # Keep ALL results
-            logger.info(f"  -> {len(ids)} IDs from all depts")
-        time.sleep(0.3)
+    # Also search without department filter for broader coverage,
+    # but only if we haven't hit budget yet
+    if not _budget_reached():
+        for query in queries:
+            if _budget_reached():
+                logger.info(f"Met budget reached ({len(all_ids)} IDs), stopping search")
+                break
+            logger.info(f"Searching Met (all depts): '{query}'...")
+            ids = search_met(query, public_domain_only=True)
+            if ids:
+                all_ids.update(ids)
+                logger.info(f"  -> {len(ids)} IDs from all depts (total: {len(all_ids)})")
+            time.sleep(0.3)
 
     result = list(all_ids)
     random.shuffle(result)
+    # If we overshot the budget, trim to max_ids
+    if max_ids > 0 and len(result) > max_ids:
+        result = result[:max_ids]
     logger.info(f"Total unique Met IDs gathered: {len(result)}")
     return result
 
@@ -171,15 +453,23 @@ def process_single(
         except Exception:
             pass  # If we can't check, let process_image handle it
 
+    # Sanitize all label fields — strip HTML, URLs, non-Latin text, etc.
+    label_title, label_artist, label_date, label_museum = sanitize_label(
+        artwork.get("title", "Untitled"),
+        artwork.get("artist", "Unknown"),
+        artwork.get("date", ""),
+        artwork.get("museum", ""),
+    )
+
     # Build a clean filename: "Artist - Title.jpg"
-    artist_clean = artwork.get("artist", "Unknown").strip()
-    title_clean = artwork.get("title", "Untitled").strip()
+    artist_file = label_artist
+    title_file = label_title
     # Sanitize for filesystem
     for ch in ['/', '\\', ':', '*', '?', '"', '<', '>', '|']:
-        artist_clean = artist_clean.replace(ch, '')
-        title_clean = title_clean.replace(ch, '')
+        artist_file = artist_file.replace(ch, '')
+        title_file = title_file.replace(ch, '')
     # Truncate to avoid path length issues
-    filename = f"{artist_clean[:40]} - {title_clean[:60]}.jpg"
+    filename = f"{artist_file[:40]} - {title_file[:60]}.jpg"
     output_path = os.path.join(output_dir, filename)
 
     # Skip if output already exists
@@ -201,10 +491,10 @@ def process_single(
         jpeg_quality=processing.get("jpeg_quality", 95),
         min_width=processing.get("min_width", 1500),
         min_height=processing.get("min_height", 1000),
-        title=title_clean if overlay.get("enabled", True) else "",
-        artist=artist_clean if overlay.get("enabled", True) else "",
-        date=artwork.get("date", "") if overlay.get("enabled", True) else "",
-        museum=artwork.get("museum", "") if overlay.get("enabled", True) else "",
+        title=label_title if overlay.get("enabled", True) else "",
+        artist=label_artist if overlay.get("enabled", True) else "",
+        date=label_date if overlay.get("enabled", True) else "",
+        museum=label_museum if overlay.get("enabled", True) else "",
         overlay_position=overlay.get("position", "bottom_right"),
         overlay_opacity=overlay.get("opacity", 0.85),
     )
@@ -370,16 +660,28 @@ def gather_wikimedia_artworks(
     queries: list[str] = None,
     categories: list[str] = None,
     per_query: int = 50,
+    max_total: int = 0,
 ) -> list[dict]:
     """
     Search Wikimedia Commons by text queries and/or categories.
+
+    Args:
+        max_total: Stop gathering once we have this many unique artworks
+                   (0 = no limit).
+
     Returns a shuffled list of artwork dicts ready for processing.
     """
     all_artworks = []
     seen_ids = set()
 
+    def _budget_reached():
+        return max_total > 0 and len(all_artworks) >= max_total
+
     if categories:
         for cat in categories:
+            if _budget_reached():
+                logger.info(f"Wikimedia budget reached ({len(all_artworks)}), stopping")
+                break
             logger.info(f"Searching Wikimedia category: '{cat}'...")
             results = search_wikimedia_commons("", category=cat, limit=per_query)
             for art in results:
@@ -387,11 +689,14 @@ def gather_wikimedia_artworks(
                 if art_id and art_id not in seen_ids:
                     seen_ids.add(art_id)
                     all_artworks.append(art)
-            logger.info(f"  -> {len(results)} results from category '{cat}'")
+            logger.info(f"  -> {len(results)} results from category '{cat}' (total: {len(all_artworks)})")
             time.sleep(0.5)
 
-    if queries:
+    if queries and not _budget_reached():
         for query in queries:
+            if _budget_reached():
+                logger.info(f"Wikimedia budget reached ({len(all_artworks)}), stopping")
+                break
             logger.info(f"Searching Wikimedia: '{query}'...")
             results = search_wikimedia_commons(query, limit=per_query)
             for art in results:
@@ -399,7 +704,7 @@ def gather_wikimedia_artworks(
                 if art_id and art_id not in seen_ids:
                     seen_ids.add(art_id)
                     all_artworks.append(art)
-            logger.info(f"  -> {len(results)} results from '{query}'")
+            logger.info(f"  -> {len(results)} results from '{query}' (total: {len(all_artworks)})")
             time.sleep(0.5)
 
     random.shuffle(all_artworks)
@@ -436,6 +741,20 @@ def run_batch(config: dict, count: int, output_dir: str, resume: bool, dry_run: 
 
     sources = config.get("art_sources", {})
 
+    # ---- Smart candidate budget ----
+    # Only gather ~3x what we need.  Typical filter pass rate is ~30-40%,
+    # so a 3x multiplier gives a comfortable margin without over-fetching.
+    candidate_budget = remaining * 3
+    # Split budget across enabled sources (Met gets a bigger share because
+    # it has more lossy filtering — many IDs turn out to be prints/drawings).
+    enabled_count = sum(1 for key in ("met_museum", "art_institute_chicago",
+                                       "cleveland_museum", "rijksmuseum",
+                                       "wikimedia_commons")
+                        if sources.get(key, {}).get("enabled", key == "met_museum"))
+    per_source_budget = max(80, candidate_budget // max(1, enabled_count))
+    logger.info(f"Candidate budget: {candidate_budget} total, ~{per_source_budget}/source "
+                f"(for {remaining} images @ 3x multiplier)")
+
     # ---- Build a unified pool of artworks from all enabled sources ----
     artwork_pool = []
 
@@ -446,11 +765,10 @@ def run_batch(config: dict, count: int, output_dir: str, resume: bool, dry_run: 
             "landscape painting", "impressionist", "renaissance portrait",
             "japanese woodblock", "dutch golden age", "watercolor",
         ])
-        # Need a large pool because many will be filtered out
-        per_query = max(100, remaining * 5 // len(met_queries))
-        met_ids = gather_met_object_ids(met_queries, per_query)
-        # We'll resolve Met objects on-the-fly since there can be thousands
-        # Store them as lightweight placeholders
+        # Met budget is 1.5x per_source because many IDs get filtered on resolve
+        met_budget = int(per_source_budget * 1.5)
+        per_query = max(20, met_budget // max(1, len(met_queries)))
+        met_ids = gather_met_object_ids(met_queries, per_query, max_ids=met_budget)
         for obj_id in met_ids:
             artwork_pool.append({"_source": "met", "_met_id": obj_id})
 
@@ -461,10 +779,9 @@ def run_batch(config: dict, count: int, output_dir: str, resume: bool, dry_run: 
             "impressionist", "landscape", "modern art",
             "American painting", "European painting",
         ])
-        per_q = 100  # AIC API max per request
+        per_q = min(100, max(20, per_source_budget // max(1, len(aic_queries))))
         aic_artworks = gather_aic_artworks(aic_queries, per_q)
-        for art in aic_artworks:
-            artwork_pool.append({"_source": "aic", "_artwork": art})
+        artwork_pool.extend({"_source": "aic", "_artwork": art} for art in aic_artworks)
 
     # Cleveland Museum of Art
     cma_config = sources.get("cleveland_museum", {})
@@ -473,10 +790,9 @@ def run_batch(config: dict, count: int, output_dir: str, resume: bool, dry_run: 
             "painting", "landscape", "portrait",
             "impressionist", "European art",
         ])
-        per_q = 100  # CMA API max per request
+        per_q = min(100, max(20, per_source_budget // max(1, len(cma_queries))))
         cma_artworks = gather_cma_artworks(cma_queries, per_q)
-        for art in cma_artworks:
-            artwork_pool.append({"_source": "cma", "_artwork": art})
+        artwork_pool.extend({"_source": "cma", "_artwork": art} for art in cma_artworks)
 
     # Rijksmuseum
     rijks_config = sources.get("rijksmuseum", {})
@@ -485,10 +801,9 @@ def run_batch(config: dict, count: int, output_dir: str, resume: bool, dry_run: 
             "Vermeer", "Rembrandt", "landscape", "portrait",
         ])
         rijks_types = rijks_config.get("types", ["painting"])
-        per_q = max(10, remaining // (len(rijks_queries) * 2))
+        per_q = max(10, per_source_budget // max(1, len(rijks_queries) * 2))
         rijks_artworks = gather_rijks_artworks(rijks_queries, rijks_types, per_q)
-        for art in rijks_artworks:
-            artwork_pool.append({"_source": "rijks", "_artwork": art})
+        artwork_pool.extend({"_source": "rijks", "_artwork": art} for art in rijks_artworks)
 
     # Wikimedia Commons
     wiki_config = sources.get("wikimedia_commons", {})
@@ -497,13 +812,47 @@ def run_batch(config: dict, count: int, output_dir: str, resume: bool, dry_run: 
         wiki_categories = wiki_config.get("categories", [
             "Raja_Ravi_Varma",
         ])
-        per_q = max(30, remaining // max(1, len(wiki_queries) + len(wiki_categories)))
-        wiki_artworks = gather_wikimedia_artworks(wiki_queries, wiki_categories, per_q)
-        for art in wiki_artworks:
-            artwork_pool.append({"_source": "wikimedia", "_artwork": art})
+        wiki_total_queries = len(wiki_queries) + len(wiki_categories)
+        per_q = max(10, per_source_budget // max(1, wiki_total_queries))
+        wiki_artworks = gather_wikimedia_artworks(
+            wiki_queries, wiki_categories, per_q, max_total=per_source_budget,
+        )
+        artwork_pool.extend({"_source": "wikimedia", "_artwork": art} for art in wiki_artworks)
 
-    # Shuffle to mix sources together
-    random.shuffle(artwork_pool)
+    # ---- Featured artists: move their candidates to the front ----
+    featured_config = sources.get("featured_artists", [])
+    featured_pool = []   # items for featured artists, processed first
+    general_pool = []    # everything else
+
+    if featured_config:
+        featured_names = {f["name"].lower(): f.get("min_count", 2) for f in featured_config}
+        logger.info(f"Featured artists: {', '.join(f['name'] for f in featured_config)}")
+
+        for item in artwork_pool:
+            # Check artist name — need to peek at the artwork dict
+            artist = ""
+            if item["_source"] != "met":
+                artist = item.get("_artwork", {}).get("artist", "").lower()
+
+            is_featured = False
+            for fname in featured_names:
+                if fname in artist:
+                    is_featured = True
+                    break
+
+            if is_featured:
+                featured_pool.append(item)
+            else:
+                general_pool.append(item)
+
+        # Shuffle within each pool, then combine: featured first
+        random.shuffle(featured_pool)
+        random.shuffle(general_pool)
+        artwork_pool = featured_pool + general_pool
+        logger.info(f"Featured artist candidates: {len(featured_pool)} (will be processed first)")
+    else:
+        # No featured artists — just shuffle everything
+        random.shuffle(artwork_pool)
 
     # Log pool composition
     source_counts = {}
@@ -515,10 +864,6 @@ def run_batch(config: dict, count: int, output_dir: str, resume: bool, dry_run: 
         logger.info(f"  {s}: {c} candidates")
 
     if dry_run:
-        source_counts = {}
-        for item in artwork_pool:
-            s = item["_source"]
-            source_counts[s] = source_counts.get(s, 0) + 1
         logger.info(f"DRY RUN: Would process up to {remaining} images from {len(artwork_pool)} candidates")
         for s, c in sorted(source_counts.items()):
             logger.info(f"  {s}: {c} candidates")
@@ -536,10 +881,22 @@ def run_batch(config: dict, count: int, output_dir: str, resume: bool, dry_run: 
     if major_only:
         logger.info("Major artists only mode: ON — filtering for well-known artists")
 
+    # Per-artist cap to prevent any single artist from dominating
+    max_per_artist = sources.get("max_per_artist", 4)
+    artist_counts = {}  # normalized artist name -> count of saved works
+    # Build featured artist caps (use their min_count as cap)
+    featured_caps = {}
+    if featured_config:
+        for f in featured_config:
+            featured_caps[f["name"].lower()] = f.get("min_count", 3)
+    logger.info(f"Max works per artist: {max_per_artist} (featured artists have their own caps)")
+
     enabled_sources = [s for s, c in sources.items() if isinstance(c, dict) and c.get("enabled", True)]
     logger.info(f"Processing {remaining} images -> {output_dir}")
     logger.info(f"Pool: {len(artwork_pool)} candidates from {len(enabled_sources)} sources")
     logger.info("-" * 60)
+
+    skipped_artist_cap = 0
 
     for item in artwork_pool:
         if success >= remaining:
@@ -566,10 +923,44 @@ def run_batch(config: dict, count: int, output_dir: str, resume: bool, dry_run: 
             if art_id in state["completed_ids"] or art_id in state["failed_ids"]:
                 continue
 
-        # Filter by major artists if enabled
-        if major_only and not is_major_artist(artwork.get("artist", "")):
+        # Filter: skip studies, fragments, and non-display pieces by title
+        if not is_display_worthy(artwork.get("title", "")):
+            logger.debug(f"  Skipping non-display: \"{artwork.get('title', '')}\"")
+            skipped_non_painting += 1
+            continue
+
+        # Filter by major artists if enabled — but always allow featured artists through
+        is_featured = False
+        if featured_config:
+            artist_lower = artwork.get("artist", "").lower()
+            for f in featured_config:
+                if f["name"].lower() in artist_lower:
+                    is_featured = True
+                    break
+        if major_only and not is_featured and not is_major_artist(artwork.get("artist", "")):
             logger.debug(f"  Skipping minor artist: {artwork.get('artist', 'Unknown')} — \"{artwork.get('title', '')}\"")
             skipped_minor_artist += 1
+            continue
+
+        # Per-artist cap — normalize the artist name for counting
+        artist_norm = artwork.get("artist", "Unknown").lower().strip()
+        # Extract just the primary name (before parenthetical bio)
+        paren = artist_norm.find("(")
+        if paren > 3:
+            artist_norm = artist_norm[:paren].strip()
+        artist_norm = artist_norm.rstrip(",;. ")
+
+        # Determine cap for this artist
+        cap = max_per_artist
+        for fname, fcap in featured_caps.items():
+            if fname in artist_norm:
+                cap = fcap
+                break
+
+        current = artist_counts.get(artist_norm, 0)
+        if current >= cap:
+            logger.debug(f"  Artist cap reached ({current}/{cap}): {artwork.get('artist', '')} — \"{artwork.get('title', '')}\"")
+            skipped_artist_cap += 1
             continue
 
         progress = f"[{success + already_done + 1}/{count}]"
@@ -577,6 +968,7 @@ def run_batch(config: dict, count: int, output_dir: str, resume: bool, dry_run: 
 
         if process_single(artwork, output_dir, config, state):
             success += 1
+            artist_counts[artist_norm] = artist_counts.get(artist_norm, 0) + 1
         else:
             failures += 1
 
@@ -593,6 +985,7 @@ def run_batch(config: dict, count: int, output_dir: str, resume: bool, dry_run: 
     logger.info(f"  Skipped (no image / non-landscape): {skipped}")
     logger.info(f"  Skipped (non-painting): {skipped_non_painting}")
     logger.info(f"  Skipped (minor artist): {skipped_minor_artist}")
+    logger.info(f"  Skipped (artist cap):  {skipped_artist_cap}")
     logger.info(f"  Output:          {output_dir}")
     logger.info(f"  Total on disk:   {len(os.listdir(output_dir))} images ready")
     logger.info("")

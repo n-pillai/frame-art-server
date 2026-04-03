@@ -7,7 +7,6 @@ frame_tv_art_*/
 batch_state.json
 batch_build.log
 frame_art.log
-tv_token.txt
 
 # Test artifacts
 test_painting.jpg

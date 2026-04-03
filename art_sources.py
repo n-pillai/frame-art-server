@@ -66,7 +66,12 @@ MAJOR_ARTISTS = {
     "caravaggio", "velázquez", "velasquez", "el greco", "botticelli",
     "giorgione", "veronese", "poussin", "claude lorrain",
     # Romanticism & Realism
-    "turner", "constable", "delacroix", "géricault", "gericault",
+    # Use full/specific names for common surnames to avoid false matches
+    # (e.g., "Constable" alone matches Lionel Constable, not just John)
+    "j. m. w. turner", "j.m.w. turner", "joseph mallord william turner",
+    "william turner",  # catches "Joseph Mallord William Turner"
+    "john constable",  # not just "constable" — avoids Lionel Constable
+    "delacroix", "géricault", "gericault",
     "courbet", "corot", "millet", "daubigny", "rosa bonheur",
     "caspar david friedrich", "frederic edwin church", "thomas cole",
     "albert bierstadt", "winslow homer", "thomas moran",
@@ -142,8 +147,19 @@ _NON_PAINTING_KEYWORDS = {
     "photograph", "photo", "gelatin", "albumen", "daguerreotype",
     "ink on paper", "pen and ink", "crayon", "pastel on paper",
     "screenprint", "woodblock", "aquatint", "mezzotint", "drypoint",
-    "ceramic", "porcelain", "textile", "tapestry", "embroidery",
+    "ceramic", "porcelain", "tile", "tiles", "glazed",
+    "textile", "tapestry", "embroidery",
     "sculpture", "bronze", "marble", "terracotta", "ivory",
+    "stained glass", "glass", "enamel", "cloisonn",
+    "furniture", "silver", "gold leaf on",
+    "decorative art", "armor", "arms",
+    "frieze", "fan mount", "architectural",
+}
+
+# Title keywords that suggest the work is a study or non-display piece
+_NON_DISPLAY_TITLE_KEYWORDS = {
+    "study for", "sketch for", "male nude", "female nude",
+    "frieze fragment", "fan mount",
 }
 
 # Keywords that positively confirm it's a painting
@@ -151,7 +167,9 @@ _PAINTING_KEYWORDS = {
     "oil on canvas", "oil on panel", "oil on board", "oil on copper",
     "oil on wood", "tempera", "acrylic", "fresco", "gouache",
     "watercolor on", "watercolour on",
-    "painting", "painted",
+    "painting",
+    # Note: "painted" deliberately excluded — "painted tile", "painted ceramic"
+    # are not paintings. Only match specific painting media above.
 }
 
 
@@ -159,22 +177,37 @@ def is_painting(medium: str, classification: str = "") -> bool:
     """Return True if the artwork appears to be a painting (not a drawing, print, photo, etc.).
 
     If medium is empty/unknown, returns True (benefit of the doubt).
+    Checks negative keywords FIRST so "painted ceramic" is rejected
+    before "painted" could match as a positive.
     """
     combined = f"{medium} {classification}".lower().strip()
     if not combined.strip():
         return True  # No info — let it through
 
-    # Positive match: if it looks like a painting, accept immediately
-    for kw in _PAINTING_KEYWORDS:
-        if kw in combined:
-            return True
-
-    # Negative match: if it has non-painting keywords, reject
+    # Negative match FIRST: reject decorative arts, prints, etc.
+    # This must come before positive matching so "painted tile" doesn't
+    # slip through via the "painting" keyword.
     for kw in _NON_PAINTING_KEYWORDS:
         if kw in combined:
             return False
 
+    # Positive match: if it looks like a painting, accept
+    for kw in _PAINTING_KEYWORDS:
+        if kw in combined:
+            return True
+
     # No strong signal either way — let it through
+    return True
+
+
+def is_display_worthy(title: str) -> bool:
+    """Return False if the title suggests it's a study, fragment, or non-display piece."""
+    if not title:
+        return True
+    title_lower = title.lower()
+    for kw in _NON_DISPLAY_TITLE_KEYWORDS:
+        if kw in title_lower:
+            return False
     return True
 
 
@@ -695,6 +728,46 @@ _wiki_session.headers.update({
 })
 
 
+def _museum_from_category(category: str) -> str:
+    """Infer the museum name from a Wikimedia Commons category string.
+
+    e.g., "Landscape_paintings_in_the_Louvre"           -> "Musée du Louvre"
+          "Paintings_in_the_National_Gallery,_London"    -> "National Gallery, London"
+          "Paintings_in_the_Museo_del_Prado"             -> "Museo del Prado"
+          "Paintings_by_Claude_Monet"                    -> ""  (artist, not museum)
+    """
+    # Category-to-museum lookup for the categories we actually use in config.
+    # Much more reliable than guessing from the category name.
+    _CAT_MAP = {
+        "Landscape_paintings_in_the_Louvre":                "Musée du Louvre, Paris",
+        "Paintings_in_the_Louvre":                          "Musée du Louvre, Paris",
+        "Landscape_paintings_in_the_Musée_d'Orsay":        "Musée d'Orsay, Paris",
+        "Paintings_in_the_Musée_d'Orsay":                  "Musée d'Orsay, Paris",
+        "Paintings_in_the_National_Gallery,_London":        "National Gallery, London",
+        "Landscape_paintings_in_the_National_Gallery_of_Art": "National Gallery of Art, Washington",
+        "Paintings_in_the_National_Gallery_of_Art":         "National Gallery of Art, Washington",
+        "Paintings_in_the_Museo_del_Prado":                "Museo del Prado, Madrid",
+        "Paintings_in_the_Uffizi_Gallery":                 "Uffizi Gallery, Florence",
+        "Paintings_in_the_Hermitage":                      "State Hermitage Museum, St. Petersburg",
+        "Paintings_in_the_Musée_de_l'Orangerie":           "Musée de l'Orangerie, Paris",
+        "Paintings_in_the_Alte_Pinakothek":                "Alte Pinakothek, Munich",
+        "Paintings_in_the_Kunsthistorisches_Museum":       "Kunsthistorisches Museum, Vienna",
+    }
+
+    if category in _CAT_MAP:
+        return _CAT_MAP[category]
+
+    # For categories like "Paintings_in_the_XYZ", extract the institution
+    cat_clean = category.replace("_", " ")
+    for prefix in ("Landscape paintings in the ", "Paintings in the ",
+                    "Collection of the ", "Works in the "):
+        if cat_clean.startswith(prefix):
+            return cat_clean[len(prefix):]
+
+    # "Paintings_by_Claude_Monet" — artist category, no museum info
+    return ""
+
+
 def _get_category_files(category: str, limit: int = 50, max_depth: int = 2) -> list[str]:
     """Get file titles from a Wikimedia Commons category, recursing up to *max_depth* levels.
 
@@ -843,6 +916,9 @@ def search_wikimedia_commons(
                 resp2.raise_for_status()
                 pages = resp2.json().get("query", {}).get("pages", {})
                 for page in pages.values():
+                    # Inject source category so _parse_commons_page can
+                    # infer the museum from it (e.g., "Paintings_in_the_Louvre")
+                    page["_source_category"] = category
                     artwork = _parse_commons_page(page)
                     if artwork:
                         results.append(artwork)
@@ -899,41 +975,94 @@ def _parse_commons_page(page: dict) -> Optional[dict]:
     date_raw = ext.get("DateTimeOriginal", {}).get("value", "")
     description = ext.get("ImageDescription", {}).get("value", "")
 
-    # Clean up HTML tags from artist field
+    # Strip ALL HTML tags and Wikidata markup from every metadata field.
+    # Wikimedia extmetadata often contains <div>, <span>, <a>, <img> tags,
+    # hidden Wikidata QS: entries, and other markup that must not appear
+    # in the on-screen label.
     import re
-    artist_clean = re.sub(r"<[^>]+>", "", artist_raw).strip() if artist_raw else ""
+
+    def _strip_html(raw: str) -> str:
+        """Remove HTML tags, collapse whitespace, strip hidden QS/Wikidata spans."""
+        if not raw:
+            return ""
+        # Remove entire <div style="display: none;">...</div> blocks (Wikidata junk)
+        clean = re.sub(r'<div[^>]*style="display:\s*none[^"]*"[^>]*>.*?</div>', "", raw, flags=re.DOTALL | re.IGNORECASE)
+        # Remove all remaining HTML tags
+        clean = re.sub(r"<[^>]+>", "", clean)
+        # Remove Wikidata QS: prefixes that sometimes survive
+        clean = re.sub(r"\bQS:\S+", "", clean)
+        # Collapse whitespace
+        clean = re.sub(r"\s+", " ", clean).strip()
+        return clean
+
+    artist_clean = _strip_html(artist_raw)
+    title_clean = _strip_html(title_raw)
+    date_clean = _strip_html(date_raw)
 
     # Use page title as fallback
     page_title = page.get("title", "").replace("File:", "").rsplit(".", 1)[0]
     page_title = page_title.replace("_", " ").strip()
 
-    title = title_raw or page_title or "Untitled"
+    title = title_clean or page_title or "Untitled"
     artist = artist_clean or "Unknown"
 
-    # Try to extract museum/institution from description or Credit
-    credit = ext.get("Credit", {}).get("value", "")
+    # Try to extract the real museum/institution from multiple fields.
+    # Wikimedia Commons pages can encode the source institution in:
+    #   1. Credit field (e.g., "Rijksmuseum, Amsterdam")
+    #   2. Categories (e.g., "Paintings_in_the_Louvre")
+    #   3. Description (e.g., "This painting is in the National Gallery")
     museum = ""
+    _MUSEUM_KEYWORDS = ("museum", "gallery", "collection", "institute",
+                        "pinakothek", "uffizi", "prado", "hermitage",
+                        "louvre", "orsay", "orangerie", "rijksmuseum",
+                        "national gallery", "tate", "kunsthistorisches")
+
+    # 1. Try Credit field first (most reliable)
+    credit = ext.get("Credit", {}).get("value", "")
     if credit:
-        credit_clean = re.sub(r"<[^>]+>", "", credit).strip()
-        # Often the credit line contains the museum name
-        if any(word in credit_clean.lower() for word in ["museum", "gallery", "collection", "institute"]):
-            # Take just the institution name portion (usually first part before "-" or "–")
+        credit_clean = _strip_html(credit)
+        if any(kw in credit_clean.lower() for kw in _MUSEUM_KEYWORDS):
             museum = credit_clean.split(" - ")[0].split(" – ")[0].strip()
             if len(museum) > 80:
-                museum = ""  # Too long, skip it
+                museum = ""
+
+    # 2. Try to infer from the category the item was found via.
+    #    The page's categories are embedded by the caller using the
+    #    special _source_category key if present.
+    if not museum:
+        src_cat = page.get("_source_category", "")
+        if src_cat:
+            museum = _museum_from_category(src_cat)
+
+    # 3. Try the description as last resort
+    if not museum and description:
+        desc_clean = _strip_html(description)
+        for kw in _MUSEUM_KEYWORDS:
+            idx = desc_clean.lower().find(kw)
+            if idx != -1:
+                # Extract the sentence fragment containing the keyword
+                # Look for the museum name: scan backwards to sentence start
+                start = max(0, desc_clean.rfind(".", 0, idx) + 1)
+                end = desc_clean.find(".", idx)
+                if end == -1:
+                    end = min(len(desc_clean), idx + 80)
+                fragment = desc_clean[start:end].strip()
+                if 5 < len(fragment) < 80:
+                    museum = fragment
+                break
 
     return {
         "source": "wikimedia",
         "id": str(page.get("pageid", "")),
         "title": title,
         "artist": artist,
-        "date": date_raw or "",
+        "date": date_clean or "",
         "medium": "",
         "department": "",
         "image_url": url,
         "dimensions": "",
         "culture": "",
-        "museum": museum or "Wikimedia Commons",
+        "museum": museum,  # empty string if unknown — sanitize_label handles it
     }
 
 

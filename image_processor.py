@@ -14,9 +14,56 @@ import logging
 from pathlib import Path
 from typing import Optional
 
-from PIL import Image, ImageDraw, ImageFilter, ImageEnhance, ImageStat, ImageFont
+from PIL import Image, ImageDraw, ImageFilter, ImageEnhance, ImageStat, ImageFont, ImageCms
+import io
 
 logger = logging.getLogger("frame_art.processor")
+
+# ---------------------------------------------------------------------------
+# sRGB color profile conversion
+# ---------------------------------------------------------------------------
+# Samsung Frame TV auto-applies a mat border when it detects non-sRGB pixel
+# data.  Museum source images frequently arrive in Adobe RGB, ProPhoto RGB,
+# or other wide-gamut spaces.  We must convert the actual pixel values to
+# sRGB — simply stripping the ICC tag leaves the pixels in the wrong space
+# and colors look shifted on the TV.
+
+_SRGB_PROFILE = ImageCms.createProfile("sRGB")
+
+
+def _convert_to_srgb(img: Image.Image) -> Image.Image:
+    """
+    Convert an image to sRGB color space if it has an embedded ICC profile.
+    If no profile is embedded, assume pixels are already sRGB (the web default).
+    Returns an RGB image with pixel values in sRGB space.
+    """
+    icc_raw = img.info.get("icc_profile")
+    if not icc_raw:
+        return img  # No profile → assume sRGB already
+
+    try:
+        src_profile = ImageCms.ImageCmsProfile(io.BytesIO(icc_raw))
+        # Check if it's already sRGB by comparing the profile description
+        try:
+            desc = ImageCms.getProfileDescription(src_profile).strip().lower()
+            if "srgb" in desc or "sRGB" in desc:
+                logger.debug("Image already in sRGB profile, skipping conversion")
+                return img
+        except Exception:
+            pass  # Can't read description — convert to be safe
+
+        # Build a transform from whatever-the-source-is → sRGB
+        transform = ImageCms.buildTransformFromOpenProfiles(
+            src_profile, _SRGB_PROFILE, img.mode, "RGB",
+            renderingIntent=ImageCms.Intent.PERCEPTUAL,
+        )
+        converted = ImageCms.applyTransform(img, transform)
+        logger.info(f"Converted color profile to sRGB (source: {desc if 'desc' in dir() else 'unknown'})")
+        return converted
+    except Exception as e:
+        logger.warning(f"ICC profile conversion failed ({e}), using pixels as-is")
+        return img
+
 
 # ---------------------------------------------------------------------------
 # Matte color palettes
@@ -438,6 +485,10 @@ def process_image(
     try:
         img = Image.open(input_path)
 
+        # Convert ICC color profile to sRGB BEFORE any mode conversion,
+        # so the pixel values are correct for the Frame TV's sRGB display.
+        img = _convert_to_srgb(img)
+
         # Convert to RGB if necessary (handles RGBA, palette, etc.)
         if img.mode != "RGB":
             img = img.convert("RGB")
@@ -503,14 +554,33 @@ def process_image(
                 opacity=overlay_opacity,
             )
 
-        # Save
+        # Verify exact target dimensions — even 1 pixel off triggers the
+        # Samsung Frame TV's auto-mat. Force-resize if rounding caused drift.
+        if processed.size != (target_w, target_h):
+            logger.warning(f"Dimension drift: {processed.size} -> forcing {target_w}x{target_h}")
+            processed = processed.resize((target_w, target_h), Image.LANCZOS)
+
+        # Strip ALL metadata — Samsung Frame TV adds a mat border when it
+        # detects orientation flags, non-sRGB color profiles, or other EXIF
+        # data.  We create a fresh image with only (now-sRGB) pixel data.
+        clean = Image.new("RGB", processed.size)
+        clean.putdata(list(processed.getdata()))
+
+        # Save — explicitly exclude icc_profile and exif to guarantee
+        # the file contains nothing but sRGB pixel data.
         output = Path(output_path)
         output.parent.mkdir(parents=True, exist_ok=True)
 
         if output.suffix.lower() in (".jpg", ".jpeg"):
-            processed.save(str(output), "JPEG", quality=jpeg_quality, optimize=True)
+            clean.save(
+                str(output), "JPEG",
+                quality=jpeg_quality,
+                optimize=True,
+                icc_profile=None,   # no ICC tag
+                exif=b"",           # no EXIF
+            )
         else:
-            processed.save(str(output), "PNG", optimize=True)
+            clean.save(str(output), "PNG", optimize=True)
 
         logger.info(f"Processed -> {output} ({target_w}x{target_h})")
         return str(output)
