@@ -216,6 +216,39 @@ def process_and_upload(
     return True
 
 
+def upload_fallback(config: dict, tv: FrameTVController | None) -> bool:
+    """
+    Upload a random already-processed image from the cache as a fallback.
+
+    Used when all fetch attempts fail — at minimum the TV keeps rotating
+    rather than going stale.
+    """
+    logger = logging.getLogger("frame_art")
+    storage = config.get("storage", {})
+    cache_dir = storage.get("cache_dir", "./art_cache")
+    processed_dir = os.path.join(cache_dir, "processed")
+
+    candidates = list(Path(processed_dir).glob("*.jpg")) + list(Path(processed_dir).glob("*.png"))
+    if not candidates:
+        logger.warning("No cached images available for fallback")
+        return False
+
+    chosen = random.choice(candidates)
+    logger.info(f"Fallback: uploading cached image {chosen.name}")
+
+    if tv:
+        matte_type = config.get("display", {}).get("matte_type", "none")
+        content_id = tv.upload_image(str(chosen), matte_type=matte_type)
+        if content_id:
+            tv.set_active_art(content_id)
+            logger.info(f"Fallback displayed: {chosen.name}")
+            return True
+        logger.error("Fallback upload also failed")
+        return False
+
+    return True  # offline mode, nothing to upload
+
+
 def run_once(config: dict, tv: FrameTVController | None, history: ArtHistory, queries: list[str] = None):
     """Fetch and display one artwork."""
     logger = logging.getLogger("frame_art")
@@ -246,8 +279,8 @@ def run_once(config: dict, tv: FrameTVController | None, history: ArtHistory, qu
         else:
             logger.warning(f"Failed to process/upload, trying another...")
 
-    logger.error("Failed to find and display artwork after 5 attempts")
-    return False
+    logger.warning("Failed to find and display artwork after 5 attempts — trying cached fallback")
+    return upload_fallback(config, tv)
 
 
 def run_daemon(config: dict, tv: FrameTVController | None):

@@ -120,10 +120,22 @@ class FrameTVController:
             logger.error(f"Failed to list art: {e}")
             return []
 
+    def reconnect(self) -> bool:
+        """
+        Drop the current connection and reconnect to the TV.
+
+        Called automatically on broken pipe or stale connection errors.
+        """
+        logger.info("Reconnecting to Frame TV...")
+        self._tv = None
+        self._art = None
+        return self.connect()
+
     def upload_image(
         self,
         image_path: str,
         matte_type: str = "none",
+        _retry: bool = True,
     ) -> Optional[str]:
         """
         Upload an image to the Frame TV.
@@ -160,7 +172,21 @@ class FrameTVController:
             )
             return content_id
 
+        except BrokenPipeError as e:
+            logger.warning(f"Broken pipe during upload ({e}). Reconnecting and retrying...")
+            if _retry and self.reconnect():
+                time.sleep(2)
+                return self.upload_image(image_path, matte_type=matte_type, _retry=False)
+            logger.error(f"Upload failed after reconnect attempt: {image_path}")
+            return None
+
         except Exception as e:
+            err_str = str(e).lower()
+            if _retry and any(kw in err_str for kw in ("broken pipe", "connection reset", "connection refused", "timed out", "websocket")):
+                logger.warning(f"Connection error during upload ({e}). Reconnecting and retrying...")
+                if self.reconnect():
+                    time.sleep(2)
+                    return self.upload_image(image_path, matte_type=matte_type, _retry=False)
             logger.error(f"Upload failed for {image_path}: {e}")
             return None
 
