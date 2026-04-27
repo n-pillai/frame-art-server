@@ -22,56 +22,59 @@ logger = logging.getLogger("frame_art.tv")
 class FrameTVController:
     """Control a Samsung Frame TV's art mode via local WebSocket API."""
 
+    # Backoff schedule (seconds) when the TV is unreachable. Capped at the
+    # last entry so we keep retrying every 10 minutes indefinitely.
+    _RETRY_BACKOFF_SECONDS = (30, 60, 120, 240, 600)
+
     def __init__(self, ip: str, port: int = 8002, token_file: str = "tv_token.txt"):
         self.ip = ip
         self.port = port
-        self.token_file = token_file
+        # Resolve to absolute so daemons launched from a different cwd still
+        # find (and update) the same token file.
+        self.token_file = str(Path(token_file).resolve())
         self._tv = None
         self._art = None
+        self._connected = False
+        self._consecutive_failures = 0
+        self._next_retry_at = 0.0
 
-    def _load_token(self) -> Optional[str]:
-        """Load saved pairing token."""
-        path = Path(self.token_file)
-        if path.exists():
-            token = path.read_text().strip()
-            if token:
-                logger.debug("Loaded saved TV token")
-                return token
-        return None
-
-    def _save_token(self, token: str):
-        """Save pairing token for future connections."""
-        Path(self.token_file).write_text(token)
-        logger.info("Saved TV pairing token")
+    @property
+    def is_connected(self) -> bool:
+        return self._connected
 
     def connect(self) -> bool:
         """
-        Connect to the Frame TV.
+        Connect to the Frame TV and verify Art Mode is responsive.
 
         On first connection, the TV will show a pairing prompt —
-        you need to accept it with the TV remote. The token is then
-        saved for future connections.
+        accept it with the TV remote. The library saves the token to
+        ``token_file`` for future connections.
+
+        Returns True only if both the WebSocket connects *and* Art Mode
+        responds. A TV that is fully powered off may accept the WebSocket
+        but fail the Art Mode check; treat that as not connected.
         """
         try:
             from samsungtvws import SamsungTVWS
 
-            token = self._load_token()
-
             self._tv = SamsungTVWS(
                 host=self.ip,
                 port=self.port,
-                token=token,
+                token_file=self.token_file,
                 name="FrameArtServer",
             )
-
-            # Test the connection and get art API
             self._art = self._tv.art()
 
-            # Save the token if we got a new one
-            if self._tv.token and self._tv.token != token:
-                self._save_token(self._tv.token)
+            if not self._art.supported():
+                logger.warning(
+                    "Connected to TV but Art Mode is not responding "
+                    "(TV may be powered off or not a Frame TV)."
+                )
+                self._connected = False
+                return False
 
             logger.info(f"Connected to Frame TV at {self.ip}:{self.port}")
+            self._connected = True
             return True
 
         except ImportError:
@@ -79,10 +82,42 @@ class FrameTVController:
                 "samsungtvws not installed. Run: "
                 'pip install "samsungtvws[async,encrypted]"'
             )
+            self._connected = False
             return False
         except Exception as e:
-            logger.error(f"Failed to connect to TV at {self.ip}: {e}")
+            logger.warning(f"Failed to connect to TV at {self.ip}: {e}")
+            self._connected = False
             return False
+
+    def ensure_connected(self) -> bool:
+        """
+        Try to (re)establish a working TV connection if currently offline.
+
+        Uses exponential backoff (30s, 1m, 2m, 4m, 10m, 10m, ...) so a TV
+        that's been off for hours doesn't generate an attempt every minute.
+        Returns True if connected (or was already connected).
+        """
+        if self._connected:
+            return True
+
+        now = time.monotonic()
+        if now < self._next_retry_at:
+            return False
+
+        if self.connect():
+            self._consecutive_failures = 0
+            self._next_retry_at = 0.0
+            return True
+
+        self._consecutive_failures += 1
+        idx = min(self._consecutive_failures - 1, len(self._RETRY_BACKOFF_SECONDS) - 1)
+        delay = self._RETRY_BACKOFF_SECONDS[idx]
+        self._next_retry_at = now + delay
+        logger.info(
+            f"TV offline (attempt {self._consecutive_failures}). "
+            f"Next reconnect in {delay}s."
+        )
+        return False
 
     def is_art_mode_supported(self) -> bool:
         """Check if this TV supports Art Mode (i.e., it's a Frame TV)."""
@@ -125,10 +160,14 @@ class FrameTVController:
         Drop the current connection and reconnect to the TV.
 
         Called automatically on broken pipe or stale connection errors.
+        Bypasses the ensure_connected backoff window — this is an explicit
+        recovery attempt triggered by a known-broken socket.
         """
         logger.info("Reconnecting to Frame TV...")
         self._tv = None
         self._art = None
+        self._connected = False
+        self._next_retry_at = 0.0
         return self.connect()
 
     def upload_image(

@@ -283,6 +283,20 @@ def run_once(config: dict, tv: FrameTVController | None, history: ArtHistory, qu
     return upload_fallback(config, tv)
 
 
+def _tv_ready_for_rotation(tv: FrameTVController | None) -> bool:
+    """
+    Returns True if a rotation should proceed.
+
+    - No TV configured: True (offline mode — fetch & process anyway).
+    - TV configured & reachable (or just came back online): True.
+    - TV configured but unreachable: False (skip rotation; don't burn API
+      quota fetching art we can't display).
+    """
+    if tv is None:
+        return True
+    return tv.ensure_connected()
+
+
 def run_daemon(config: dict, tv: FrameTVController | None):
     """Run the main scheduling loop."""
     logger = logging.getLogger("frame_art")
@@ -308,9 +322,10 @@ def run_daemon(config: dict, tv: FrameTVController | None):
     logger.info(f"History: {history.count()} artworks shown previously")
 
     # Initial art change
-    queries = scheduler.get_current_queries(default_queries)
-    if run_once(config, tv, history, queries):
-        scheduler.mark_changed()
+    if _tv_ready_for_rotation(tv):
+        queries = scheduler.get_current_queries(default_queries)
+        if run_once(config, tv, history, queries):
+            scheduler.mark_changed()
 
     # Main loop
     while RUNNING:
@@ -320,6 +335,11 @@ def run_daemon(config: dict, tv: FrameTVController | None):
             break
 
         if scheduler.should_change_art():
+            if not _tv_ready_for_rotation(tv):
+                # ensure_connected already logged the backoff window; skip
+                # this tick and let the scheduler try again next minute.
+                continue
+
             queries = scheduler.get_current_queries(default_queries)
             status = scheduler.get_status()
             logger.info(f"Scheduler triggered art change: {status}")
@@ -352,7 +372,15 @@ def setup_logging(config: dict):
 
 
 def connect_tv(config: dict) -> FrameTVController | None:
-    """Create and connect to the Frame TV."""
+    """
+    Build the Frame TV controller.
+
+    Returns ``None`` only when no TV is configured (true offline mode).
+    If the TV is configured but currently unreachable, the controller is
+    still returned — the daemon will retry the connection (with backoff)
+    before each rotation, so a TV that's temporarily off recovers
+    automatically once it comes back.
+    """
     tv_config = config.get("tv", {})
     ip = tv_config.get("ip", "")
 
@@ -369,16 +397,15 @@ def connect_tv(config: dict) -> FrameTVController | None:
         token_file=tv_config.get("token_file", "tv_token.txt"),
     )
 
-    if tv.connect():
-        if tv.is_art_mode_supported():
-            logging.info("Frame TV connected and Art Mode supported")
-            return tv
-        else:
-            logging.error("Connected but Art Mode not supported. Is this a Frame TV?")
+    if tv.ensure_connected():
+        logging.info("Frame TV connected and Art Mode supported")
     else:
-        logging.warning("Could not connect to TV. Running in offline mode.")
+        logging.warning(
+            "TV not currently reachable. Daemon will retry before each "
+            "rotation (no manual restart needed once the TV comes back)."
+        )
 
-    return None
+    return tv
 
 
 def main():
@@ -441,7 +468,7 @@ Examples:
 
     # --- Upload specific image ---
     if args.upload:
-        if not tv:
+        if tv is None or not tv.is_connected:
             logger.error("Cannot upload: TV not connected")
             sys.exit(1)
 
@@ -460,7 +487,7 @@ Examples:
 
     # --- List art on TV ---
     if args.list:
-        if not tv:
+        if tv is None or not tv.is_connected:
             logger.error("Cannot list: TV not connected")
             sys.exit(1)
 
@@ -485,13 +512,16 @@ Examples:
         print(f"  Last change:    {status['last_change'] or 'Never'}")
         print(f"  Should change:  {status['should_change']}")
 
-        if tv:
+        if tv is not None and tv.is_connected:
             print(f"\n  TV connected:   Yes ({config['tv']['ip']})")
             print(f"  Art mode:       {tv.get_art_mode_status()}")
             art_count = len(tv.list_uploaded_art())
             print(f"  Art on TV:      {art_count} items")
+        elif tv is not None:
+            print(f"\n  TV connected:   No (configured at {config['tv']['ip']}, "
+                  f"will retry on next rotation)")
         else:
-            print(f"\n  TV connected:   No")
+            print(f"\n  TV connected:   No (not configured)")
         return
 
     # --- Run once ---
