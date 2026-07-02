@@ -61,11 +61,20 @@ The script searches all configured sources, downloads high-res public domain ori
 2. Plug USB into the One Connect Box
 3. On the TV: Menu > Art Mode > My Photos > import from USB
 4. Set each image's mat to "No Mat" (unfortunately Samsung has no global setting for this)
-5. Set to shuffle slideshow
+5. **Enable the slideshow — this is what makes the art rotate.** In Art Mode > My Photos, select the imported images and start the slideshow with shuffle on, choosing a change interval (e.g. every hour or every day). **If you skip this step, the TV displays one static image forever** — the script only builds the images; all rotation is done by the TV.
 
 ### 4. Refresh whenever you want
 
 Run the script again for a fresh batch. Set `major_artists_only: false` in config.yaml for a broader, more eclectic mix beyond the "greatest hits."
+
+### Troubleshooting: art is not rotating
+
+This tool has no rotation code by design — it builds a folder of images, and the TV's built-in Art Mode slideshow does the rotating. If the picture never changes, work through this on the TV:
+
+1. Confirm the images were imported: Art Mode > My Photos should show your batch (not just one image).
+2. Select the imported images and start the slideshow: shuffle **on**, and pick a change interval.
+3. To verify quickly, set the interval to the shortest option (e.g. 10 minutes), wait one interval with the TV in Art Mode, and confirm the picture changes. Then set your preferred interval.
+4. Note that the slideshow only advances while the TV is in Art Mode (standby with art showing), and some firmware versions reset the slideshow setting after a new USB import — re-enable it after each refresh.
 
 ---
 
@@ -144,12 +153,25 @@ art_sources:
       - "Turner landscape painting"
 ```
 
-**Display settings:**
+**Display settings (mat toggle):**
 ```yaml
 display:
   resolution: [3840, 2160]    # 4K (use [1920, 1080] for 32" Frame)
-  aspect_mode: "crop"         # center-crop to fill
+  aspect_mode: "crop"         # "crop" = no mat (default), "matte" = software mat border
+  matte_color: "neutral"      # mat color, only used when aspect_mode is "matte"
 ```
+
+The default is no mat: images are center-cropped to fill the whole screen. Set `aspect_mode: "matte"` if you prefer art at its original aspect ratio inside a color-matched mat border. (This controls the software mat drawn into the image file — the TV's own hardware mat is a separate per-image TV setting; see Known Limitations.)
+
+**Your own images:**
+```yaml
+art_sources:
+  local:
+    enabled: true
+    path: "./my_art"
+```
+
+Every supported image (jpg, png, bmp, tiff, webp) in the folder is added to the batch alongside museum art. Local images skip the artist filters and per-artist cap, but still go through the same landscape/size checks and 4K processing. The filename (minus extension) becomes the title label.
 
 **Metadata overlay:**
 ```yaml

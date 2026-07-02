@@ -503,6 +503,11 @@ def process_image(
             )
             return None
 
+        # Unknown modes fall back to crop (no mat) rather than silently matting
+        if aspect_mode not in ("crop", "matte", "stretch"):
+            logger.warning(f"Unknown aspect_mode '{aspect_mode}' — defaulting to 'crop' (no mat)")
+            aspect_mode = "crop"
+
         # Reject non-landscape images — they can't fill a 16:9 TV
         # Minimum aspect ratio of 1.3 (roughly 4:3) so the crop is gentle
         MIN_LANDSCAPE_ASPECT = 1.3
@@ -516,20 +521,18 @@ def process_image(
         target_w, target_h = target_resolution
 
         if aspect_mode == "crop":
-            # Center-crop to fill the screen
+            # Center-crop to fill the screen (no mat)
             processed = center_crop(img, target_w, target_h)
         elif aspect_mode == "stretch":
             # Simple stretch (not recommended)
             processed = img.resize((target_w, target_h), Image.LANCZOS)
         else:
-            # Matte mode (default) — preserve aspect ratio, add border
+            # Matte mode — preserve aspect ratio, add border
             art_aspect = w / h
-            has_matte = False
             if abs(art_aspect - TARGET_ASPECT) < 0.05:
                 # Close enough to 16:9 — just resize to fill
                 processed = img.resize((target_w, target_h), Image.LANCZOS)
             else:
-                has_matte = True
                 matte_color = compute_matte_color(img, matte_color_config)
                 processed = add_gallery_matte(img, target_w, target_h, matte_color)
 
