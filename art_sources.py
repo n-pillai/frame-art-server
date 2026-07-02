@@ -291,30 +291,6 @@ def get_met_object(object_id: int, max_retries: int = 3) -> Optional[dict]:
     return None
 
 
-def fetch_random_met_artwork(
-    queries: list[str], public_domain_only: bool = True, min_width: int = 1500,
-    landscape_only: bool = True,
-) -> Optional[dict]:
-    """Pick a random query, search the Met, and return one random landscape artwork."""
-    query = random.choice(queries)
-    object_ids = search_met(query, public_domain_only)
-
-    if not object_ids:
-        return None
-
-    # Try up to 10 random objects to find one with a good image
-    random.shuffle(object_ids)
-    for obj_id in object_ids[:10]:
-        artwork = get_met_object(obj_id)
-        if artwork and artwork["image_url"]:
-            # Met doesn't give pixel dimensions in the API, so we can't filter here.
-            # Filtering happens at download/processing time by checking actual image dims.
-            return artwork
-        time.sleep(0.1)  # Be respectful of rate limits
-
-    return None
-
-
 # ---------------------------------------------------------------------------
 # Rijksmuseum API (new Search API — no API key needed)
 # ---------------------------------------------------------------------------
@@ -489,28 +465,6 @@ def _extract_rijks_image_url(data: dict, obj_id: str) -> Optional[str]:
     return None
 
 
-def fetch_random_rijks_artwork(
-    queries: list[str],
-    types: list[str] = None,
-) -> Optional[dict]:
-    """Pick a random query and return one random Rijksmuseum artwork."""
-    query = random.choice(queries)
-    object_ids = search_rijksmuseum(query, types)
-
-    if not object_ids:
-        return None
-
-    # Try random objects to find one with a usable image
-    random.shuffle(object_ids)
-    for obj_uri in object_ids[:10]:
-        artwork = resolve_rijks_object(obj_uri)
-        if artwork and artwork["image_url"]:
-            return artwork
-        time.sleep(0.2)  # Be respectful
-
-    return None
-
-
 # ---------------------------------------------------------------------------
 # Art Institute of Chicago API (no key needed)
 # ---------------------------------------------------------------------------
@@ -579,48 +533,6 @@ def search_aic(
             return []
 
 
-def fetch_random_aic_artwork(queries: list[str], landscape_only: bool = True) -> Optional[dict]:
-    """Pick a random query and return one random landscape Art Institute of Chicago artwork."""
-    query = random.choice(queries)
-    results = search_aic(query)
-
-    if not results:
-        return None
-
-    random.shuffle(results)
-    for obj in results[:20]:
-        image_id = obj.get("image_id")
-        if not image_id:
-            continue
-
-        # Check aspect ratio via thumbnail dimensions (AIC provides these)
-        thumb = obj.get("thumbnail", {}) or {}
-        tw = thumb.get("width", 0)
-        th = thumb.get("height", 0)
-        if landscape_only and tw and th:
-            if not is_landscape_enough(tw, th):
-                logger.debug(f"AIC skip portrait/square: {obj.get('title', '')} ({tw}x{th})")
-                continue
-
-        # Build IIIF image URL — request max 3840px wide for 4K TV
-        image_url = f"{AIC_IIIF}/{image_id}/full/3840,/0/default.jpg"
-
-        return {
-            "source": "aic",
-            "id": str(obj.get("id", "")),
-            "title": obj.get("title", "Untitled"),
-            "artist": obj.get("artist_title", "Unknown"),
-            "date": obj.get("date_display", ""),
-            "medium": "",
-            "department": "",
-            "image_url": image_url,
-            "dimensions": "",
-            "culture": "",
-            "museum": "Art Institute of Chicago",
-        }
-
-    return None
-
 
 # ---------------------------------------------------------------------------
 # Cleveland Museum of Art API (no key needed)
@@ -659,60 +571,6 @@ def search_cma(
         logger.error(f"CMA search failed for '{query}': {e}")
         return []
 
-
-def fetch_random_cma_artwork(queries: list[str], landscape_only: bool = True) -> Optional[dict]:
-    """Pick a random query and return one random landscape Cleveland Museum artwork."""
-    query = random.choice(queries)
-    results = search_cma(query)
-
-    if not results:
-        return None
-
-    random.shuffle(results)
-    for obj in results[:20]:
-        images = obj.get("images", {})
-        if not images:
-            continue
-
-        # Prefer print resolution, fall back to web
-        image_url = None
-        img_w, img_h = 0, 0
-        for key in ("print", "web", "full"):
-            img_data = images.get(key, {})
-            if img_data.get("url"):
-                image_url = img_data["url"]
-                img_w = img_data.get("width", 0)
-                img_h = img_data.get("height", 0)
-                break
-
-        if not image_url:
-            continue
-
-        # Filter by aspect ratio if we have dimensions
-        if landscape_only and img_w and img_h:
-            if not is_landscape_enough(img_w, img_h):
-                logger.debug(f"CMA skip portrait/square: {obj.get('title', '')} ({img_w}x{img_h})")
-                continue
-
-        # Extract creators
-        creators = obj.get("creators", [])
-        artist = creators[0].get("description", "Unknown") if creators else "Unknown"
-
-        return {
-            "source": "cma",
-            "id": str(obj.get("id", "")),
-            "title": obj.get("title", "Untitled"),
-            "artist": artist,
-            "date": obj.get("creation_date", ""),
-            "medium": obj.get("technique", ""),
-            "department": obj.get("department", ""),
-            "image_url": image_url,
-            "dimensions": "",
-            "culture": obj.get("culture", [""])[0] if obj.get("culture") else "",
-            "museum": "Cleveland Museum of Art",
-        }
-
-    return None
 
 
 # ---------------------------------------------------------------------------
@@ -1066,63 +924,42 @@ def _parse_commons_page(page: dict) -> Optional[dict]:
     }
 
 
-def fetch_random_wikimedia_artwork(
-    queries: list[str] = None,
-    categories: list[str] = None,
-) -> Optional[dict]:
-    """Pick a random query/category and return one artwork from Wikimedia Commons."""
-    results = []
-
-    if categories:
-        cat = random.choice(categories)
-        results = search_wikimedia_commons("", category=cat)
-    elif queries:
-        query = random.choice(queries)
-        results = search_wikimedia_commons(query)
-
-    if not results:
-        return None
-
-    return random.choice(results)
-
-
 # ---------------------------------------------------------------------------
 # Local folder source
 # ---------------------------------------------------------------------------
 SUPPORTED_EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp", ".tiff", ".webp"}
 
 
-def fetch_random_local_artwork(local_path: str) -> Optional[dict]:
-    """Pick a random image from a local folder."""
+def gather_local_artworks(local_path: str) -> list[dict]:
+    """Gather every supported image in a local folder as artwork dicts."""
     folder = Path(local_path)
     if not folder.is_dir():
         logger.warning(f"Local art folder not found: {local_path}")
-        return None
+        return []
 
-    images = [
-        f
-        for f in folder.iterdir()
-        if f.suffix.lower() in SUPPORTED_EXTENSIONS
-    ]
+    artworks = []
+    for f in sorted(folder.iterdir()):
+        if f.suffix.lower() not in SUPPORTED_EXTENSIONS:
+            continue
+        artworks.append({
+            "source": "local",
+            "id": f.stem,
+            "title": f.stem.replace("_", " ").replace("-", " ").title(),
+            "artist": "",
+            "date": "",
+            "medium": "",
+            "department": "",
+            "image_url": str(f),  # Local path, not a URL
+            "dimensions": "",
+            "culture": "",
+            "museum": "",
+        })
 
-    if not images:
+    if not artworks:
         logger.warning(f"No images found in {local_path}")
-        return None
-
-    chosen = random.choice(images)
-    return {
-        "source": "local",
-        "id": chosen.stem,
-        "title": chosen.stem.replace("_", " ").replace("-", " ").title(),
-        "artist": "",
-        "date": "",
-        "medium": "",
-        "department": "",
-        "image_url": str(chosen),  # Local path, not a URL
-        "dimensions": "",
-        "culture": "",
-        "museum": "",
-    }
+    else:
+        logger.info(f"Local folder '{local_path}': {len(artworks)} images gathered")
+    return artworks
 
 
 # ---------------------------------------------------------------------------
