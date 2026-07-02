@@ -31,11 +31,7 @@ import yaml
 
 from art_sources import (
     download_image,
-    fetch_random_met_artwork,
-    fetch_random_rijks_artwork,
-    fetch_random_aic_artwork,
-    fetch_random_cma_artwork,
-    fetch_random_wikimedia_artwork,
+    gather_local_artworks,
     search_met,
     get_met_object,
     search_aic,
@@ -460,6 +456,9 @@ def process_single(
         artwork.get("date", ""),
         artwork.get("museum", ""),
     )
+    # Local images have no artist metadata — don't label them "Unknown"
+    if artwork.get("source") == "local":
+        label_artist = ""
 
     # Build a clean filename: "Artist - Title.jpg"
     artist_file = label_artist
@@ -469,7 +468,10 @@ def process_single(
         artist_file = artist_file.replace(ch, '')
         title_file = title_file.replace(ch, '')
     # Truncate to avoid path length issues
-    filename = f"{artist_file[:40]} - {title_file[:60]}.jpg"
+    if artist_file:
+        filename = f"{artist_file[:40]} - {title_file[:60]}.jpg"
+    else:
+        filename = f"{title_file[:60]}.jpg"
     output_path = os.path.join(output_dir, filename)
 
     # Skip if output already exists
@@ -712,6 +714,28 @@ def gather_wikimedia_artworks(
     return all_artworks
 
 
+def prune_cache(cache_dir: str, max_cached: int):
+    """Delete the oldest cached downloads (by mtime) beyond max_cached files."""
+    cache = Path(cache_dir)
+    if max_cached <= 0 or not cache.is_dir():
+        return
+    files = sorted(
+        (f for f in cache.iterdir() if f.is_file()),
+        key=lambda f: f.stat().st_mtime,
+    )
+    excess = len(files) - max_cached
+    if excess <= 0:
+        return
+    removed = 0
+    for f in files[:excess]:
+        try:
+            f.unlink()
+            removed += 1
+        except OSError as e:
+            logger.warning(f"Could not delete cached file {f}: {e}")
+    logger.info(f"Cache pruned: removed {removed} oldest files, kept {len(files) - removed} (max_cached: {max_cached})")
+
+
 def run_batch(config: dict, count: int, output_dir: str, resume: bool, dry_run: bool):
     """Main batch processing loop — pulls from all enabled museum sources."""
     os.makedirs(output_dir, exist_ok=True)
@@ -749,7 +773,7 @@ def run_batch(config: dict, count: int, output_dir: str, resume: bool, dry_run: 
     # it has more lossy filtering — many IDs turn out to be prints/drawings).
     enabled_count = sum(1 for key in ("met_museum", "art_institute_chicago",
                                        "cleveland_museum", "rijksmuseum",
-                                       "wikimedia_commons")
+                                       "wikimedia_commons", "local")
                         if sources.get(key, {}).get("enabled", key == "met_museum"))
     per_source_budget = max(80, candidate_budget // max(1, enabled_count))
     logger.info(f"Candidate budget: {candidate_budget} total, ~{per_source_budget}/source "
@@ -818,6 +842,12 @@ def run_batch(config: dict, count: int, output_dir: str, resume: bool, dry_run: 
             wiki_queries, wiki_categories, per_q, max_total=per_source_budget,
         )
         artwork_pool.extend({"_source": "wikimedia", "_artwork": art} for art in wiki_artworks)
+
+    # Local folder — your own images, included as-is (no artist filters apply)
+    local_config = sources.get("local", {})
+    if local_config.get("enabled", False):
+        local_artworks = gather_local_artworks(local_config.get("path", "./my_art"))
+        artwork_pool.extend({"_source": "local", "_artwork": art} for art in local_artworks)
 
     # ---- Featured artists: move their candidates to the front ----
     featured_config = sources.get("featured_artists", [])
@@ -923,8 +953,12 @@ def run_batch(config: dict, count: int, output_dir: str, resume: bool, dry_run: 
             if art_id in state["completed_ids"] or art_id in state["failed_ids"]:
                 continue
 
+        # Local images are the user's own choices — exempt from the title,
+        # major-artist, and per-artist-cap filters (they have no artist metadata)
+        is_local = artwork.get("source") == "local"
+
         # Filter: skip studies, fragments, and non-display pieces by title
-        if not is_display_worthy(artwork.get("title", "")):
+        if not is_local and not is_display_worthy(artwork.get("title", "")):
             logger.debug(f"  Skipping non-display: \"{artwork.get('title', '')}\"")
             skipped_non_painting += 1
             continue
@@ -937,7 +971,7 @@ def run_batch(config: dict, count: int, output_dir: str, resume: bool, dry_run: 
                 if f["name"].lower() in artist_lower:
                     is_featured = True
                     break
-        if major_only and not is_featured and not is_major_artist(artwork.get("artist", "")):
+        if major_only and not is_local and not is_featured and not is_major_artist(artwork.get("artist", "")):
             logger.debug(f"  Skipping minor artist: {artwork.get('artist', 'Unknown')} — \"{artwork.get('title', '')}\"")
             skipped_minor_artist += 1
             continue
@@ -950,25 +984,27 @@ def run_batch(config: dict, count: int, output_dir: str, resume: bool, dry_run: 
             artist_norm = artist_norm[:paren].strip()
         artist_norm = artist_norm.rstrip(",;. ")
 
-        # Determine cap for this artist
-        cap = max_per_artist
-        for fname, fcap in featured_caps.items():
-            if fname in artist_norm:
-                cap = fcap
-                break
+        if not is_local:
+            # Determine cap for this artist
+            cap = max_per_artist
+            for fname, fcap in featured_caps.items():
+                if fname in artist_norm:
+                    cap = fcap
+                    break
 
-        current = artist_counts.get(artist_norm, 0)
-        if current >= cap:
-            logger.debug(f"  Artist cap reached ({current}/{cap}): {artwork.get('artist', '')} — \"{artwork.get('title', '')}\"")
-            skipped_artist_cap += 1
-            continue
+            current = artist_counts.get(artist_norm, 0)
+            if current >= cap:
+                logger.debug(f"  Artist cap reached ({current}/{cap}): {artwork.get('artist', '')} — \"{artwork.get('title', '')}\"")
+                skipped_artist_cap += 1
+                continue
 
         progress = f"[{success + already_done + 1}/{count}]"
         logger.info(f"{progress} ({artwork['source']}) \"{artwork['title']}\" by {artwork['artist']}")
 
         if process_single(artwork, output_dir, config, state):
             success += 1
-            artist_counts[artist_norm] = artist_counts.get(artist_norm, 0) + 1
+            if not is_local:
+                artist_counts[artist_norm] = artist_counts.get(artist_norm, 0) + 1
         else:
             failures += 1
 
@@ -991,6 +1027,10 @@ def run_batch(config: dict, count: int, output_dir: str, resume: bool, dry_run: 
     logger.info("")
     logger.info("Tip: If yield is low, try 'major_artists_only: false' in config.yaml")
 
+    # Prune the download cache to the configured limit
+    storage = config.get("storage", {})
+    prune_cache(storage.get("cache_dir", "./art_cache"), storage.get("max_cached", 500))
+
     # Final state
     state["finished_at"] = datetime.now().isoformat()
     save_state(state)
@@ -1009,7 +1049,9 @@ How to use:
   2. Copy the output folder to a USB drive
   3. Plug USB into the Frame TV's One Connect Box
   4. On the TV: Menu -> Art Mode -> My Photos -> import from USB
-  5. Set to shuffle/slideshow — done!
+  5. IMPORTANT: enable the slideshow (Art Mode -> My Photos -> select all ->
+     Start Slideshow, shuffle on, pick an interval). Without this step the
+     TV shows ONE static image forever — this script does not rotate art.
 
 The TV handles rotation. No Pi or server needed.
         """,
@@ -1045,7 +1087,7 @@ The TV handles rotation. No Pi or server needed.
     else:
         logger.warning(f"Config {args.config} not found, using defaults")
         config = {
-            "display": {"resolution": [3840, 2160], "aspect_mode": "matte", "matte_color": "auto"},
+            "display": {"resolution": [3840, 2160], "aspect_mode": "crop", "matte_color": "auto"},
             "processing": {"sharpen": True, "warmth_adjust": 3, "jpeg_quality": 95},
             "overlay": {"enabled": True, "position": "bottom_right", "opacity": 0.85},
             "storage": {"cache_dir": "./art_cache"},
