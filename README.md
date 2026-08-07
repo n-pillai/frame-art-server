@@ -206,4 +206,9 @@ frame-art-server/
 
 ## License
 
-The art itself is public domain (CC0 or equivalent). This tool is open source.
+This tool is released under the [MIT License](LICENSE).
+
+The artwork it downloads is a separate matter: the museum sources are filtered to public-domain
+works (CC0 or equivalent), but the licence attaches to each artwork, not to this tool. If you add
+your own sources or point the local-folder option at your own images, you are responsible for the
+rights to those.
