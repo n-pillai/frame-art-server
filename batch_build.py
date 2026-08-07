@@ -54,15 +54,37 @@ except ImportError:
 # ---------------------------------------------------------------------------
 # Logging
 # ---------------------------------------------------------------------------
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(message)s",
-    handlers=[
-        logging.StreamHandler(sys.stdout),
-        logging.FileHandler("batch_build.log"),
-    ],
-)
+LOG_FILE = "batch_build.log"
+
 logger = logging.getLogger("batch_build")
+
+
+def configure_logging(log_file: str = LOG_FILE) -> None:
+    """Configure root logging. Called from main(), never at import time.
+
+    This used to run at module scope, which meant merely importing this module
+    had two side effects a library import should not have:
+
+    1. It created batch_build.log in the current working directory. A test that
+       imported anything from here littered, and could not choose its own
+       logging.
+    2. It switched on INFO logging for the whole process, including third-party
+       libraries. That is not hypothetical: samsungtvws logs the Frame TV
+       pairing token at INFO ("New token %s", connection.py), so any future
+       TV-facing script importing this module would have written a credential
+       in plaintext to batch_build.log and to stdout.
+
+    Configuring only from the entry point leaves importers in control, which is
+    what a library should do.
+    """
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s [%(levelname)s] %(message)s",
+        handlers=[
+            logging.StreamHandler(sys.stdout),
+            logging.FileHandler(log_file),
+        ],
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -1078,6 +1100,9 @@ The TV handles rotation. No Pi or server needed.
     )
 
     args = parser.parse_args()
+
+    # Before anything that logs — the config-missing warning below is the first.
+    configure_logging()
 
     # Load config
     config_path = Path(args.config)
