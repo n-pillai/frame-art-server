@@ -40,8 +40,13 @@ The system pulls from free, no-API-key-needed sources:
 ### 1. Install dependencies
 
 ```bash
-pip install Pillow requests pyyaml
+pip install -r requirements.txt
 ```
+
+(Installing the three packages by name works too, but skips the minimum versions
+pinned in `requirements.txt` — `Pillow>=10.0.0` in particular, since older Pillow
+releases carry known image-parsing vulnerabilities and this tool decodes images
+downloaded from the internet.)
 
 ### 2. Build your art collection
 
