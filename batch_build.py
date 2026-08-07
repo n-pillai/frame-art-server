@@ -54,37 +54,69 @@ except ImportError:
 # ---------------------------------------------------------------------------
 # Logging
 # ---------------------------------------------------------------------------
-LOG_FILE = "batch_build.log"
+DEFAULT_LOG_FILE = "batch_build.log"
+DEFAULT_LOG_LEVEL = "INFO"
 
 logger = logging.getLogger("batch_build")
 
 
-def configure_logging(log_file: str = LOG_FILE) -> None:
+def resolve_logging_settings(
+    config: dict | None = None,
+    log_file: str | None = None,
+    log_level: str | None = None,
+) -> tuple[str, str]:
+    """Resolve the log destination and level from three sources.
+
+    Ascending precedence, so a default always exists and can always be beaten:
+
+        built-in default  ->  config.yaml `logging:`  ->  CLI flag
+
+    Separated from configure_logging() so the precedence rules can be tested
+    without touching global logging state.
+    """
+    section = (config or {}).get("logging") or {}
+    resolved_file = log_file or section.get("file") or DEFAULT_LOG_FILE
+    resolved_level = str(log_level or section.get("level") or DEFAULT_LOG_LEVEL).upper()
+    return resolved_file, resolved_level
+
+
+def configure_logging(
+    config: dict | None = None,
+    log_file: str | None = None,
+    log_level: str | None = None,
+) -> None:
     """Configure root logging. Called from main(), never at import time.
 
-    This used to run at module scope, which meant merely importing this module
-    had two side effects a library import should not have:
-
-    1. It created batch_build.log in the current working directory. A test that
-       imported anything from here littered, and could not choose its own
-       logging.
-    2. It switched on INFO logging for the whole process, including third-party
-       libraries. That is not hypothetical: samsungtvws logs the Frame TV
-       pairing token at INFO ("New token %s", connection.py), so any future
-       TV-facing script importing this module would have written a credential
-       in plaintext to batch_build.log and to stdout.
-
-    Configuring only from the entry point leaves importers in control, which is
-    what a library should do.
+    Configuring at module scope gave a bare import two side effects it should
+    not have: it created a log file in the working directory (which blocks
+    testing), and it switched INFO logging on process-wide, third-party
+    libraries included. That second one matters concretely -- samsungtvws logs
+    the Frame TV pairing token at INFO, so a TV-facing script importing this
+    module would have written a credential in plaintext to the log and stdout.
+    Configuring only from the entry point leaves importers in control.
     """
+    resolved_file, level_name = resolve_logging_settings(config, log_file, log_level)
+
+    level = getattr(logging, level_name, None)
+    unknown_level = not isinstance(level, int)
+    if unknown_level:
+        level = logging.INFO
+
     logging.basicConfig(
-        level=logging.INFO,
+        level=level,
         format="%(asctime)s [%(levelname)s] %(message)s",
         handlers=[
             logging.StreamHandler(sys.stdout),
-            logging.FileHandler(log_file),
+            logging.FileHandler(resolved_file),
         ],
     )
+
+    # Only reportable now that handlers exist.
+    if unknown_level:
+        logger.warning(
+            "Unknown log level %r in config; falling back to %s",
+            level_name, DEFAULT_LOG_LEVEL,
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -1098,18 +1130,46 @@ The TV handles rotation. No Pi or server needed.
         "--dry-run", action="store_true",
         help="Show what would be fetched without downloading"
     )
+    parser.add_argument(
+        "--log-file", default=None,
+        help=f"Where to write the log (default: config.yaml logging.file, "
+             f"else {DEFAULT_LOG_FILE})"
+    )
+    parser.add_argument(
+        "--log-level", default=None,
+        choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
+        help=f"Log verbosity (default: config.yaml logging.level, "
+             f"else {DEFAULT_LOG_LEVEL})"
+    )
 
     args = parser.parse_args()
 
-    # Before anything that logs — the config-missing warning below is the first.
-    configure_logging()
-
-    # Load config
+    # Chicken and egg: the logging settings live in the config, but loading the
+    # config is itself something worth logging about. So load first, hold
+    # anything that wants reporting, configure logging, then say it. The
+    # alternative -- configuring twice with basicConfig(force=True) -- would
+    # briefly open the wrong log file.
     config_path = Path(args.config)
-    if config_path.exists():
-        with open(config_path) as f:
-            config = yaml.safe_load(f)
-    else:
+    config_missing = not config_path.exists()
+    parse_error = None
+    config = None
+
+    if not config_missing:
+        try:
+            with open(config_path) as f:
+                config = yaml.safe_load(f)
+        except yaml.YAMLError as e:
+            parse_error = e
+
+    configure_logging(config, args.log_file, args.log_level)
+
+    if parse_error is not None:
+        # Previously this surfaced as a bare traceback, since logging was
+        # already up. Now that config is read first, report it properly.
+        logger.error("Could not parse %s: %s", args.config, parse_error)
+        return 1
+
+    if config_missing:
         logger.warning(f"Config {args.config} not found, using defaults")
         config = {
             "display": {"resolution": [3840, 2160], "aspect_mode": "crop", "matte_color": "auto"},
@@ -1124,7 +1184,10 @@ The TV handles rotation. No Pi or server needed.
         }
 
     run_batch(config, args.count, args.output, args.resume, args.dry_run)
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    # main() now has a failure path (unparseable config), so propagate its exit
+    # code rather than always exiting 0.
+    sys.exit(main())
