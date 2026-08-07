@@ -186,6 +186,25 @@ overlay:
   opacity: 0.90
 ```
 
+**Logging:**
+```yaml
+logging:
+  level: "INFO"             # DEBUG, INFO, WARNING, ERROR, CRITICAL
+  file: "./batch_build.log"
+```
+
+Settings are resolved in ascending order of precedence, so there is always a
+working default and it can always be overridden:
+
+1. built-in defaults — `batch_build.log` at `INFO`, used when no config exists
+2. the `logging:` section above
+3. `--log-level` and `--log-file` on the command line
+
+```bash
+# quieter run, log somewhere else
+python batch_build.py --count 200 --log-level WARNING --log-file /tmp/art.log
+```
+
 ---
 
 ## Project Structure

@@ -1,9 +1,9 @@
 name: ci
 
-# There are no unit tests in this repo yet, so this is deliberately a smoke
-# check rather than a test suite. It is scoped to the failures that can be
-# caught without one, and it should be replaced by real tests rather than
-# extended indefinitely.
+# Mostly a smoke check rather than a test suite: the repo has one real unit
+# test file so far (test_logging_config.py) and the rest of the steps below
+# cover what can be checked without more. As real tests arrive they should
+# replace these steps rather than accumulate alongside them.
 #
 # What it actually catches:
 #   1. syntax errors in any module
@@ -52,6 +52,9 @@ jobs:
           import batch_build, art_sources, image_processor
           print('all modules import against declared dependencies')
           "
+
+      - name: Logging configuration precedence
+        run: python test_logging_config.py
 
       - name: Validate config.yaml
         run: |

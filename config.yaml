@@ -231,6 +231,14 @@ storage:
   max_cached: 500
 
 # --- Logging ---
+# Overridden by --log-level / --log-file on the command line; falls back to
+# INFO and ./batch_build.log if this section is absent.
+#
+# The filename was "./frame_art.log" from the initial commit until 2026-08-07.
+# That was the pre-April daemon's log, and the code reading this section went
+# out with the daemon in the batch-build refactor -- so the setting sat unread
+# while the code wrote to batch_build.log instead. Corrected to match what the
+# tool actually does rather than reviving a dead filename.
 logging:
-  level: "INFO"             # DEBUG, INFO, WARNING, ERROR
-  file: "./frame_art.log"
+  level: "INFO"             # DEBUG, INFO, WARNING, ERROR, CRITICAL
+  file: "./batch_build.log"
