@@ -222,9 +222,22 @@ frame-art-server/
 
 ## Known Limitations
 
-**Samsung Frame TV mat/border:** The TV defaults to showing a mat border on every image and there is no global "no mat" setting. You need to set each image to "No Mat" individually through the TV's menu. Samsung has acknowledged this as a limitation but hasn't addressed it in firmware updates.
+**Samsung Frame TV mat/border:** The TV defaults to showing a mat border on every image and there is no global "no mat" setting in the TV's own menu. However, the mat *can* be cleared per-artwork over the network: `probe_matte.py` (in this repo) connects to the TV, shows what mat options your model offers, and can set a named artwork — and, verified 2026-08-07, a whole library — to `none`. It needs the TV awake/in Art Mode and a one-time pairing prompt; see `docs/solutions/integration-issues/frame-tv-art-channel-pairing-and-matte-api-2026-08-07.md`. An automated post-upload no-mat pass is on the roadmap (below).
 
 **Wikimedia museum attribution:** When art comes through Wikimedia Commons, the museum name is inferred from the category or credit metadata. Some images may show no museum if the source metadata is incomplete.
+
+---
+
+## Roadmap
+
+Two pipeline extensions are specced (intent captured, not yet built) in
+[`docs/specs/pipeline-extensions-2026-08-07.md`](docs/specs/pipeline-extensions-2026-08-07.md):
+
+1. **Theme-based batch selection** — build a batch by theme (e.g. "Impressionist",
+   "Cityscapes") instead of hand-editing source queries.
+2. **Post-upload no-mat pass** — after a USB import, one command sets every artwork on the TV
+   to "no mat", discovering what your TV model actually offers before applying anything.
+   Builds on `probe_matte.py`, which is already usable by hand.
 
 ---
 
