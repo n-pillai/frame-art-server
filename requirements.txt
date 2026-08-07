@@ -5,4 +5,4 @@ Pillow>=10.0.0
 requests>=2.31.0
 
 # Configuration
-pyyaml>=6.0
+pyyaml>=6.0.3
