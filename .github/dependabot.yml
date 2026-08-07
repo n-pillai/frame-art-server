@@ -1,0 +1,23 @@
+version: 2
+
+# The repo had no Dependabot and no CI of any kind until 2026-08-06. Pillow is
+# the reason this matters most: it parses image bytes downloaded from museum
+# APIs, which is exactly the shape of dependency that accumulates CVEs, and
+# nothing here was watching it.
+
+updates:
+  - package-ecosystem: pip
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "chore(deps)"
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "chore(deps)"

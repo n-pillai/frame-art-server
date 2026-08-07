@@ -1,0 +1,69 @@
+name: ci
+
+# There are no unit tests in this repo yet, so this is deliberately a smoke
+# check rather than a test suite. It is scoped to the failures that can be
+# caught without one, and it should be replaced by real tests rather than
+# extended indefinitely.
+#
+# What it actually catches:
+#   1. syntax errors in any module
+#   2. an incomplete requirements.txt -- the import step installs ONLY what is
+#      declared, so a dependency used in code but missing from the file fails
+#      here instead of on a user's first run
+#   3. a config.yaml that no longer parses, or has lost a section the code
+#      reads unconditionally
+#
+# What it does NOT do: call the museum APIs. A live fetch would be flaky, slow,
+# and rude to free public endpoints.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Compile every module
+        run: python -m compileall -q batch_build.py art_sources.py image_processor.py
+
+      - name: Install only what requirements.txt declares
+        run: pip install -r requirements.txt
+
+      - name: Import every module against those declared deps
+        # A module used in code but absent from requirements.txt fails here.
+        # Note: importing batch_build configures logging with a FileHandler, so
+        # this writes batch_build.log into the runner. Harmless, and gitignored.
+        run: |
+          python -c "
+          import batch_build, art_sources, image_processor
+          print('all modules import against declared dependencies')
+          "
+
+      - name: Validate config.yaml
+        run: |
+          python -c "
+          import sys, yaml
+          cfg = yaml.safe_load(open('config.yaml', encoding='utf-8'))
+          required = {'display', 'art_sources', 'overlay', 'processing', 'storage', 'logging'}
+          missing = required - set(cfg)
+          if missing:
+              sys.exit(f'config.yaml is missing required section(s): {sorted(missing)}')
+          mode = cfg['display'].get('aspect_mode')
+          if mode not in ('crop', 'matte'):
+              sys.exit(f'display.aspect_mode must be crop or matte, got {mode!r}')
+          print(f'config.yaml valid — {len(cfg)} sections, aspect_mode={mode}')
+          "
