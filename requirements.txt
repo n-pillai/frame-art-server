@@ -2,7 +2,7 @@
 Pillow>=12.3.0
 
 # HTTP requests for museum APIs
-requests>=2.31.0
+requests>=2.34.2
 
 # Configuration
 pyyaml>=6.0
