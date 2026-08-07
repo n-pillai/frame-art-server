@@ -1,9 +1,10 @@
 name: ci
 
-# Mostly a smoke check rather than a test suite: the repo has one real unit
-# test file so far (test_logging_config.py) and the rest of the steps below
-# cover what can be checked without more. As real tests arrive they should
-# replace these steps rather than accumulate alongside them.
+# Mostly a smoke check rather than a test suite: the repo has a small set of
+# real unit test files (test_logging_config.py, test_image_processor.py,
+# test_label_sanitization.py) and the rest of the steps below cover what can
+# be checked without more. As real tests arrive they should replace these
+# steps rather than accumulate alongside them.
 #
 # What it actually catches:
 #   1. syntax errors in any module
@@ -55,6 +56,12 @@ jobs:
 
       - name: Logging configuration precedence
         run: python test_logging_config.py
+
+      - name: Image processor pipeline
+        run: python test_image_processor.py
+
+      - name: Label sanitization
+        run: python test_label_sanitization.py
 
       - name: Validate config.yaml
         run: |
