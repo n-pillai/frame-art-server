@@ -140,7 +140,7 @@ THEMEABLE_SOURCES = (
     "cleveland_museum",
     "wikimedia_commons",
 )
-THEME_OPTION_KEYS = ("keywords_any", "major_artists_only")
+THEME_OPTION_KEYS = ("keywords_any", "major_artists_only", "max_per_artist")
 
 
 class UnknownThemeError(ValueError):
@@ -166,6 +166,8 @@ def theme_summary_line(name: str, theme: dict) -> str:
         parts.append(f"keywords_any: {', '.join(theme['keywords_any'])}")
     if "major_artists_only" in theme:
         parts.append(f"major_artists_only: {str(theme['major_artists_only']).lower()}")
+    if "max_per_artist" in theme:
+        parts.append(f"max_per_artist: {theme['max_per_artist']}")
     return f"{name}: {'; '.join(parts) if parts else 'no sources'}"
 
 
@@ -211,6 +213,11 @@ def resolve_theme_sources(sources: dict, theme: dict) -> dict:
         resolved[src] = entry
     if "major_artists_only" in theme:
         resolved["major_artists_only"] = bool(theme["major_artists_only"])
+    if "max_per_artist" in theme:
+        # A themed batch deliberately concentrates on fewer artists, so the
+        # global variety cap (4) binds hard there — 50 cap-skips in the
+        # 2026-08-08 impressionist run. Themes may raise (or lower) it.
+        resolved["max_per_artist"] = int(theme["max_per_artist"])
     return resolved
 
 

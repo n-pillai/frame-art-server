@@ -58,6 +58,15 @@ MAJOR_ARTISTS = {
     "van gogh", "gauguin", "seurat", "signac", "toulouse-lautrec",
     "bazille", "frédéric bazille", "armand guillaumin", "guillaumin",
     "childe hassam", "hassam", "maximilien luce",
+    # Impressionist circle & precursors — added 2026-08-08 after the themed
+    # run's skip log named them (real painters excluded alongside stock-scan
+    # junk). Theodore Robinson stays full-name: "robinson" alone is too
+    # common a surname for substring matching.
+    "eugène boudin", "eugene boudin", "boudin",
+    "henri fantin-latour", "fantin-latour",
+    "george inness", "theodore robinson",
+    "james tissot", "tissot",
+    "puvis de chavannes", "ernest meissonier", "meissonier",
     # Dutch & Flemish Masters
     "rembrandt", "vermeer", "jan steen", "jacob van ruisdael", "ruisdael",
     "pieter bruegel", "brueghel", "rubens", "van dyck", "frans hals",
@@ -66,6 +75,7 @@ MAJOR_ARTISTS = {
     "leonardo", "raphael", "michelangelo", "titian", "tintoretto",
     "caravaggio", "velázquez", "velasquez", "el greco", "botticelli",
     "giorgione", "veronese", "poussin", "claude lorrain",
+    "goya",  # absent until 2026-08-08 — the themed skip log caught it
     # Romanticism & Realism
     # Use full/specific names for common surnames to avoid false matches
     # (e.g., "Constable" alone matches Lionel Constable, not just John)

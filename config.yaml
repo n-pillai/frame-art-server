@@ -220,6 +220,12 @@ themes:
     # search-time filter and then die at the post-download aspect check —
     # the single biggest attrition in the 2026-08-08 run. Steering the query
     # toward landscapes cuts that waste at the source.
+    #
+    # Raised per-artist cap: a themed gallery deliberately concentrates on a
+    # small artist set, so the global variety cap of 4 binds hard here (50
+    # cap-skips in the 2026-08-08 run). 8 Monets in a 200-image
+    # impressionist rotation is a feature.
+    max_per_artist: 8
     met_museum:
       queries:
         - "impressionist painting"

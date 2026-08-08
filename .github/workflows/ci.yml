@@ -82,7 +82,7 @@ jobs:
 
       - name: Validate config.yaml
         # Also validates the themes: catalog shape — a theme may only name the
-        # four themeable sources and the two option keys, sources may only
+        # four themeable sources and the three option keys, sources may only
         # carry queries/categories string lists. A malformed theme would
         # otherwise fail silently at runtime (unknown keys are just ignored).
         run: |
@@ -98,7 +98,7 @@ jobs:
               sys.exit(f'display.aspect_mode must be crop or matte, got {mode!r}')
           themes = cfg.get('themes') or {}
           KNOWN_SOURCES = {'met_museum', 'art_institute_chicago', 'cleveland_museum', 'wikimedia_commons'}
-          OPTION_KEYS = {'keywords_any', 'major_artists_only'}
+          OPTION_KEYS = {'keywords_any', 'major_artists_only', 'max_per_artist'}
           def is_str_list(v):
               return isinstance(v, list) and v and all(isinstance(x, str) for x in v)
           for name, theme in themes.items():

@@ -105,6 +105,14 @@ def main():
     no_override = resolve_theme_sources(BASE_SOURCES, {"met_museum": {"queries": ["X"]}})
     check("no override -> global major_artists_only kept",
           no_override["major_artists_only"] is True)
+    check("no override -> global max_per_artist kept",
+          no_override["max_per_artist"] == 4)
+    capped = resolve_theme_sources(
+        BASE_SOURCES, {"met_museum": {"queries": ["X"]}, "max_per_artist": 8})
+    check("per-theme max_per_artist override applied",
+          capped["max_per_artist"] == 8)
+    check("max_per_artist override does not mutate input",
+          BASE_SOURCES["max_per_artist"] == 4)
 
     print("\nunknown theme — error text lists what is available:")
     try:
@@ -214,12 +222,15 @@ def main():
         check(f"'{name}' names at least one source", bool(named))
         check(f"'{name}' has only known keys",
               set(theme) <= set(THEMEABLE_SOURCES) | {"keywords_any",
-                                                      "major_artists_only"},
+                                                      "major_artists_only",
+                                                      "max_per_artist"},
               str(set(theme)))
     check("cityscapes widens the artist filter",
           themes["cityscapes"]["major_artists_only"] is False)
     check("women-artists widens the artist filter",
           themes["women-artists"]["major_artists_only"] is False)
+    check("impressionist raises the per-artist cap",
+          themes["impressionist"]["max_per_artist"] == 8)
 
     print(f"\n{PASSED} passed, {len(FAILED)} failed")
     return 1 if FAILED else 0
