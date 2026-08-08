@@ -80,6 +80,15 @@ The script searches all configured sources, downloads high-res public domain ori
 
 Run the script again for a fresh batch. Set `major_artists_only: false` in config.yaml for a broader, more eclectic mix beyond the "greatest hits."
 
+A full refresh is three passes: **delete the old batch, USB-import the new one, clear the mats.** The front half is one command instead of deleting images one at a time in the TV menu:
+
+```bash
+python tv_delete.py --ip <tv-ip>           # dry run: lists what would be deleted
+python tv_delete.py --ip <tv-ip> --apply   # deletes, after you type the exact count
+```
+
+It only ever targets user-uploaded content (anything else is excluded and reported), and because deletion is irreversible on the TV there is no undo file — `--apply` asks you to type the exact count, and every run writes a manifest of what was deleted (a receipt, not an undo). Recovery is re-importing from the local `frame_tv_art/` folder. Then import the new batch (step 3) and run `tv_no_mat.py`.
+
 ### Troubleshooting: art is not rotating
 
 This tool has no rotation code by design — it builds a folder of images, and the TV's built-in Art Mode slideshow does the rotating. If the picture never changes, work through this on the TV:
@@ -223,6 +232,7 @@ frame-art-server/
   art_sources.py       # Museum API integrations (Met, AIC, CMA, Wikimedia)
   image_processor.py   # 4K processing, crop, sharpen, sRGB, metadata overlay
   tv_no_mat.py         # Post-upload pass: set every artwork on the TV to "no mat"
+  tv_delete.py         # Pre-import pass: delete every user-uploaded artwork from the TV
   probe_matte.py       # Single-artwork TV diagnostic (what does your TV offer?)
   tv_session.py        # Shared TV pairing/token/logging plumbing (needs samsungtvws)
   config.yaml          # Configuration (queries, sources, display settings)
@@ -250,9 +260,11 @@ and planned in
    "Cityscapes") instead of hand-editing source queries. *Planned, not yet built.*
 2. ~~**Post-upload no-mat pass**~~ — **built 2026-08-08**: `tv_no_mat.py` (Quick Start
    step 4), verified end-to-end against a real TV.
-3. **Bulk artwork deletion** — one command clears all user-uploaded art from the TV, making a
-   full refresh delete → USB import → no-mat pass. *Planned, not yet built; deletion is
-   irreversible, so it ships with a stronger confirmation gate and a deletion manifest.*
+3. ~~**Bulk artwork deletion**~~ — **built 2026-08-08**: `tv_delete.py` (Quick Start
+   step 4), making a full refresh delete → USB import → no-mat pass. Deletion is
+   irreversible, so it ships with a typed-count confirmation gate and a deletion manifest
+   (a receipt, not an undo). Dry run verified against a real TV; the first full destructive
+   pass runs at the next batch refresh.
 
 ---
 
