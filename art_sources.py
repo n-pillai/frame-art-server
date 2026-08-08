@@ -818,12 +818,18 @@ def _parse_commons_page(page: dict) -> Optional[dict]:
     if not is_landscape_enough(width, height):
         return None
 
-    # Only accept common image formats
-    lower_url = url.lower()
-    if not any(lower_url.endswith(ext) for ext in (".jpg", ".jpeg", ".png")):
+    # Only accept common image formats. Check the URL path, not the raw
+    # string: Commons started appending ?utm_source=... tracking params to
+    # imageinfo URLs (observed 2026-08-08), which made every endswith()
+    # extension check fail and silently emptied all Wikimedia results.
+    def _is_image_url(u: str) -> bool:
+        path = u.split("?")[0].lower()
+        return any(path.endswith(ext) for ext in (".jpg", ".jpeg", ".png"))
+
+    if not _is_image_url(url):
         # Try to get the original URL if thumb is in another format
         url = info.get("url", "")
-        if not any(url.lower().endswith(ext) for ext in (".jpg", ".jpeg", ".png")):
+        if not _is_image_url(url):
             return None
 
     # Extract metadata from extmetadata

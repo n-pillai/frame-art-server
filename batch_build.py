@@ -15,6 +15,9 @@ Usage:
   python batch_build.py --output ./usb_drive   # Output to a specific folder
   python batch_build.py --resume               # Resume an interrupted batch
   python batch_build.py --dry-run              # Show what would be fetched, don't download
+  python batch_build.py --theme impressionist  # Build from a named theme in config.yaml
+  python batch_build.py --list-themes          # Show the theme catalog
+  python batch_build.py --artist "Claude Monet"  # Single-artist batch
 """
 
 import argparse
@@ -117,6 +120,189 @@ def configure_logging(
             "Unknown log level %r in config; falling back to %s",
             level_name, DEFAULT_LOG_LEVEL,
         )
+
+
+# ---------------------------------------------------------------------------
+# Themes — named bundles of per-source search inputs (config.yaml `themes:`)
+# ---------------------------------------------------------------------------
+# Selecting a theme swaps the per-source inputs before gathering; the rest of
+# the pipeline -- landscape/painting filters, per-artist caps, featured
+# artists, processing -- runs unchanged. Catalog only, no free-text themes:
+# each source interprets a bare string differently, so free-text passthrough
+# would be unpredictable per source (build-plan decision 5).
+
+# The four keyless sources a theme may re-parameterize. Rijksmuseum and the
+# local folder are deliberately not themeable: Rijks search is disabled, and
+# the local folder is the user's own explicit choice, not a search input.
+THEMEABLE_SOURCES = (
+    "met_museum",
+    "art_institute_chicago",
+    "cleveland_museum",
+    "wikimedia_commons",
+)
+THEME_OPTION_KEYS = ("keywords_any", "major_artists_only")
+
+
+class UnknownThemeError(ValueError):
+    """Raised for a --theme name not in the catalog; message lists what is."""
+
+
+def theme_catalog(config: dict | None) -> dict:
+    """Return the `themes:` mapping from config ({} if absent or null)."""
+    return (config or {}).get("themes") or {}
+
+
+def theme_summary_line(name: str, theme: dict) -> str:
+    """One line per theme for --list-themes: name + per-source input counts."""
+    parts = []
+    for src in THEMEABLE_SOURCES:
+        entry = theme.get(src)
+        if not isinstance(entry, dict):
+            continue
+        bits = [f"{len(entry[key])} {key}"
+                for key in ("queries", "categories") if entry.get(key)]
+        parts.append(f"{src} ({', '.join(bits) if bits else 'no inputs'})")
+    if theme.get("keywords_any"):
+        parts.append(f"keywords_any: {', '.join(theme['keywords_any'])}")
+    if "major_artists_only" in theme:
+        parts.append(f"major_artists_only: {str(theme['major_artists_only']).lower()}")
+    return f"{name}: {'; '.join(parts) if parts else 'no sources'}"
+
+
+def format_theme_catalog(themes: dict) -> str:
+    """Human-readable catalog listing for --list-themes."""
+    if not themes:
+        return "No themes defined in config.yaml (add a `themes:` section)."
+    lines = ["Available themes:"]
+    for name in sorted(themes):
+        lines.append(f"  {theme_summary_line(name, themes[name])}")
+    return "\n".join(lines)
+
+
+def unknown_theme_message(name: str, themes: dict) -> str:
+    """Error text for an unknown theme — always lists what IS available."""
+    available = ", ".join(sorted(themes)) if themes else "(none defined in config.yaml)"
+    return f"Unknown theme {name!r}. Available themes: {available}"
+
+
+def resolve_theme_sources(sources: dict, theme: dict) -> dict:
+    """Return a new art_sources dict with the theme's per-source inputs swapped in.
+
+    Sources the theme names are enabled with exactly the theme's
+    queries/categories -- base-config inputs for that source are replaced,
+    not merged, because a theme is the whole search surface. Themeable
+    sources the theme does NOT name are disabled for the run; otherwise
+    their base-config queries would dilute the theme. Both input keys are
+    always replaced so a stale base-config list on a source the theme only
+    gave one input kind to cannot leak through. Everything else (caps,
+    featured artists, local folder) passes through untouched, except the
+    optional per-theme `major_artists_only` override. Never mutates input.
+    """
+    resolved = dict(sources or {})
+    for src in THEMEABLE_SOURCES:
+        entry = dict(resolved.get(src) or {})
+        themed = theme.get(src)
+        if isinstance(themed, dict):
+            entry["enabled"] = True
+            entry["queries"] = list(themed.get("queries") or [])
+            entry["categories"] = list(themed.get("categories") or [])
+        else:
+            entry["enabled"] = False
+        resolved[src] = entry
+    if "major_artists_only" in theme:
+        resolved["major_artists_only"] = bool(theme["major_artists_only"])
+    return resolved
+
+
+def derive_artist_theme(artist: str) -> dict:
+    """Mechanically derive a single-artist theme for --artist.
+
+    Queries are just the name for the three museum APIs. Wikimedia gets a
+    text query plus a best-guess "Paintings_by_<Name>" category -- if that
+    category does not exist on Commons, the category fetch returns zero
+    files and the run proceeds on the text query alone.
+    """
+    name = artist.strip()
+    return {
+        "met_museum": {"queries": [name]},
+        "art_institute_chicago": {"queries": [name]},
+        "cleveland_museum": {"queries": [name]},
+        "wikimedia_commons": {
+            "queries": [f"{name} painting"],
+            "categories": [f"Paintings_by_{name.replace(' ', '_')}"],
+        },
+    }
+
+
+def resolve_batch_inputs(
+    config: dict,
+    theme_name: str | None = None,
+    artist: str | None = None,
+) -> tuple[dict, list[str] | None, str | None]:
+    """Resolve --theme/--artist into (config, keywords_any, exempt_artist).
+
+    With neither flag the input config comes back as the same object --
+    the no-flag path must stay identical to today's behavior. In --artist
+    mode the artist is exempt from major_artists_only and the per-artist
+    cap: a Monet-only batch obviously exceeds a cap of 4.
+    """
+    if theme_name and artist:
+        raise ValueError("--theme and --artist are mutually exclusive")
+    if not theme_name and not artist:
+        return config, None, None
+
+    if artist:
+        theme = derive_artist_theme(artist)
+        exempt = artist.strip().lower()
+    else:
+        themes = theme_catalog(config)
+        if theme_name not in themes:
+            raise UnknownThemeError(unknown_theme_message(theme_name, themes))
+        theme = themes[theme_name]
+        exempt = None
+
+    resolved = dict(config or {})
+    resolved["art_sources"] = resolve_theme_sources(
+        (config or {}).get("art_sources") or {}, theme
+    )
+    keywords = list(theme.get("keywords_any") or []) or None
+    return resolved, keywords, exempt
+
+
+def matches_keywords_any(artwork: dict, keywords: list[str] | None) -> bool:
+    """Case-insensitive substring match for a theme's keywords_any post-filter.
+
+    Empty/None keywords means no post-filter -- everything passes. The
+    fields checked are the ones the sources actually populate: title
+    everywhere; medium (Met/AIC/CMA); department, which carries the Met's
+    department and doubles as the classification slot; and culture.
+    """
+    if not keywords:
+        return True
+    haystack = " ".join(
+        str(artwork.get(field) or "")
+        for field in ("title", "medium", "department", "culture")
+    ).lower()
+    return any(str(kw).lower() in haystack for kw in keywords)
+
+
+def artist_cap_for(
+    artist_norm: str,
+    max_per_artist: int,
+    featured_caps: dict,
+    exempt_artist: str | None = None,
+) -> int | None:
+    """Per-artist cap for a normalized artist name; None means uncapped.
+
+    The exemption (--artist mode) is checked first: a featured-artist cap
+    must not re-cap the artist the whole batch is about.
+    """
+    if exempt_artist and exempt_artist in artist_norm:
+        return None
+    for fname, fcap in featured_caps.items():
+        if fname in artist_norm:
+            return fcap
+    return max_per_artist
 
 
 # ---------------------------------------------------------------------------
@@ -790,8 +976,21 @@ def prune_cache(cache_dir: str, max_cached: int):
     logger.info(f"Cache pruned: removed {removed} oldest files, kept {len(files) - removed} (max_cached: {max_cached})")
 
 
-def run_batch(config: dict, count: int, output_dir: str, resume: bool, dry_run: bool):
-    """Main batch processing loop — pulls from all enabled museum sources."""
+def run_batch(
+    config: dict,
+    count: int,
+    output_dir: str,
+    resume: bool,
+    dry_run: bool,
+    keywords_any: list[str] | None = None,
+    exempt_artist: str | None = None,
+):
+    """Main batch processing loop — pulls from all enabled museum sources.
+
+    keywords_any and exempt_artist come from --theme/--artist resolution
+    (resolve_batch_inputs); both default to no-ops so the no-flag path is
+    unchanged.
+    """
     os.makedirs(output_dir, exist_ok=True)
 
     # Load or initialize state
@@ -903,6 +1102,22 @@ def run_batch(config: dict, count: int, output_dir: str, resume: bool, dry_run: 
         local_artworks = gather_local_artworks(local_config.get("path", "./my_art"))
         artwork_pool.extend({"_source": "local", "_artwork": art} for art in local_artworks)
 
+    # ---- Theme keywords_any post-filter (non-Met candidates) ----
+    # Met candidates are bare object IDs until resolved, so they are filtered
+    # in the processing loop below; every other source's candidates already
+    # carry metadata here, which also makes --dry-run counts honest for them.
+    skipped_keywords = 0
+    if keywords_any:
+        kept = []
+        for item in artwork_pool:
+            if item["_source"] == "met" or matches_keywords_any(item["_artwork"], keywords_any):
+                kept.append(item)
+            else:
+                skipped_keywords += 1
+        logger.info(f"keywords_any {keywords_any}: kept {len(kept)} of "
+                    f"{len(artwork_pool)} candidates (Met checked at resolve time)")
+        artwork_pool = kept
+
     # ---- Featured artists: move their candidates to the front ----
     featured_config = sources.get("featured_artists", [])
     featured_pool = []   # items for featured artists, processed first
@@ -1001,6 +1216,11 @@ def run_batch(config: dict, count: int, output_dir: str, resume: bool, dry_run: 
                 logger.debug(f"  Skipping non-painting: {artwork.get('medium', '')} — \"{artwork.get('title', '')}\"")
                 skipped_non_painting += 1
                 continue
+            # Theme keywords_any — Met is checked here because its metadata
+            # only exists after resolve (see the pool-level filter above)
+            if not matches_keywords_any(artwork, keywords_any):
+                skipped_keywords += 1
+                continue
         else:
             artwork = item["_artwork"]
             art_id = f"{artwork['source']}_{artwork['id']}"
@@ -1025,7 +1245,10 @@ def run_batch(config: dict, count: int, output_dir: str, resume: bool, dry_run: 
                 if f["name"].lower() in artist_lower:
                     is_featured = True
                     break
-        if major_only and not is_local and not is_featured and not is_major_artist(artwork.get("artist", "")):
+        # --artist mode: the requested artist is exempt from the major-artist
+        # filter and the per-artist cap — the batch is ABOUT that artist
+        is_exempt = bool(exempt_artist) and exempt_artist in artwork.get("artist", "").lower()
+        if major_only and not is_local and not is_featured and not is_exempt and not is_major_artist(artwork.get("artist", "")):
             logger.debug(f"  Skipping minor artist: {artwork.get('artist', 'Unknown')} — \"{artwork.get('title', '')}\"")
             skipped_minor_artist += 1
             continue
@@ -1039,15 +1262,10 @@ def run_batch(config: dict, count: int, output_dir: str, resume: bool, dry_run: 
         artist_norm = artist_norm.rstrip(",;. ")
 
         if not is_local:
-            # Determine cap for this artist
-            cap = max_per_artist
-            for fname, fcap in featured_caps.items():
-                if fname in artist_norm:
-                    cap = fcap
-                    break
-
+            # Determine cap for this artist (None = uncapped, --artist mode)
+            cap = artist_cap_for(artist_norm, max_per_artist, featured_caps, exempt_artist)
             current = artist_counts.get(artist_norm, 0)
-            if current >= cap:
+            if cap is not None and current >= cap:
                 logger.debug(f"  Artist cap reached ({current}/{cap}): {artwork.get('artist', '')} — \"{artwork.get('title', '')}\"")
                 skipped_artist_cap += 1
                 continue
@@ -1076,6 +1294,8 @@ def run_batch(config: dict, count: int, output_dir: str, resume: bool, dry_run: 
     logger.info(f"  Skipped (non-painting): {skipped_non_painting}")
     logger.info(f"  Skipped (minor artist): {skipped_minor_artist}")
     logger.info(f"  Skipped (artist cap):  {skipped_artist_cap}")
+    if keywords_any:
+        logger.info(f"  Skipped (keywords_any): {skipped_keywords}")
     logger.info(f"  Output:          {output_dir}")
     logger.info(f"  Total on disk:   {len(os.listdir(output_dir))} images ready")
     logger.info("")
@@ -1130,6 +1350,21 @@ The TV handles rotation. No Pi or server needed.
         "--dry-run", action="store_true",
         help="Show what would be fetched without downloading"
     )
+    theme_group = parser.add_mutually_exclusive_group()
+    theme_group.add_argument(
+        "--theme", default=None, metavar="NAME",
+        help="Build from a named theme in config.yaml's themes: catalog "
+             "(see --list-themes)"
+    )
+    theme_group.add_argument(
+        "--artist", default=None, metavar="NAME",
+        help='Single-artist batch, e.g. --artist "Claude Monet". Searches all '
+             "sources for that name and lifts the per-artist cap for them."
+    )
+    parser.add_argument(
+        "--list-themes", action="store_true",
+        help="Print the theme catalog from config.yaml and exit"
+    )
     parser.add_argument(
         "--log-file", default=None,
         help=f"Where to write the log (default: config.yaml logging.file, "
@@ -1183,7 +1418,25 @@ The TV handles rotation. No Pi or server needed.
             ]}},
         }
 
-    run_batch(config, args.count, args.output, args.resume, args.dry_run)
+    if args.list_themes:
+        print(format_theme_catalog(theme_catalog(config)))
+        return 0
+
+    try:
+        config, keywords_any, exempt_artist = resolve_batch_inputs(
+            config, args.theme, args.artist
+        )
+    except UnknownThemeError as e:
+        logger.error(str(e))
+        return 1
+
+    if args.theme:
+        logger.info(f"Theme: {args.theme}")
+    elif args.artist:
+        logger.info(f"Single-artist batch: {args.artist}")
+
+    run_batch(config, args.count, args.output, args.resume, args.dry_run,
+              keywords_any=keywords_any, exempt_artist=exempt_artist)
     return 0
 
 

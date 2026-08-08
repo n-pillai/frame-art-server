@@ -200,6 +200,267 @@ art_sources:
     enabled: false
     path: "./my_art"
 
+# --- Themes ---
+# Named bundles of per-source search inputs, selected with --theme <name>.
+# A theme REPLACES the queries/categories above for the sources it names and
+# disables the museum sources it does not name; everything else (filters,
+# caps, featured artists) runs unchanged. See --list-themes for the catalog.
+#
+# Per theme, optionally:
+#   keywords_any:       post-filter — keep only works whose title/medium/
+#                       classification metadata contains one of these
+#                       (case-insensitive substring)
+#   major_artists_only: override the global setting above for this theme
+#                       (themes whose artists are not on the curated
+#                       major-artists list need `false` here)
+themes:
+  impressionist:
+    met_museum:
+      queries:
+        - "impressionist painting"
+        - "Claude Monet"
+        - "Camille Pissarro"
+        - "Alfred Sisley"
+        - "Pierre-Auguste Renoir"
+        - "Berthe Morisot"
+        - "Edgar Degas"
+        - "Mary Cassatt"
+        - "Gustave Caillebotte"
+        - "french impressionist landscape"
+    art_institute_chicago:
+      queries:
+        - "Claude Monet"
+        - "Pierre-Auguste Renoir"
+        - "Gustave Caillebotte"
+        - "Alfred Sisley"
+        - "Camille Pissarro"
+        - "Berthe Morisot"
+        - "Edgar Degas"
+        - "Mary Cassatt"
+        - "Childe Hassam"
+        - "Impressionism"
+    cleveland_museum:
+      queries:
+        - "Monet"
+        - "Pissarro"
+        - "Sisley"
+        - "Renoir"
+        - "Degas"
+        - "Caillebotte"
+        - "Morisot"
+        - "Cassatt"
+        - "Childe Hassam"
+        - "impressionist"
+    wikimedia_commons:
+      categories:
+        - "Paintings_by_Claude_Monet"
+        - "Paintings_by_Camille_Pissarro"
+        - "Paintings_by_Alfred_Sisley"
+        - "Paintings_by_Pierre-Auguste_Renoir"
+        - "Paintings_by_Frédéric_Bazille"
+        - "Paintings_by_Childe_Hassam"
+        - "Paintings_by_Gustave_Caillebotte"
+        - "Paintings_by_Berthe_Morisot"
+        - "Paintings_by_Edgar_Degas"
+        - "Paintings_by_Armand_Guillaumin"
+        - "Paintings_by_Maximilien_Luce"
+      queries:
+        - "impressionist landscape painting"
+        - "Monet landscape painting"
+        - "Pissarro landscape"
+
+  cityscapes:
+    # Vedute, street scenes, and moonlit towns. Canaletto, Guardi, Grimshaw,
+    # Hassam, and Caillebotte ARE on the major-artists list, but the generic
+    # city/Venice queries surface many vedute painters who are not — without
+    # the override the pool starves.
+    major_artists_only: false
+    met_museum:
+      queries:
+        - "Canaletto"
+        - "Bernardo Bellotto"
+        - "Venice view painting"
+        - "cityscape painting"
+        - "Camille Pissarro boulevard"
+        - "city street painting"
+        - "harbor view painting"
+    art_institute_chicago:
+      queries:
+        - "Gustave Caillebotte"
+        - "Childe Hassam"
+        - "Paris street"
+        - "cityscape"
+        - "Venice"
+        - "city view"
+        - "street scene"
+    cleveland_museum:
+      queries:
+        - "Canaletto"
+        - "Bellotto"
+        - "Guardi"
+        - "cityscape"
+        - "Venice"
+        - "Childe Hassam"
+        - "city view"
+        - "street scene"
+    wikimedia_commons:
+      categories:
+        # Canaletto's own works file under his birth name on Commons
+        - "Paintings_by_Giovanni_Antonio_Canal"
+        - "Paintings_by_Bernardo_Bellotto"
+        - "Paintings_by_Francesco_Guardi"
+        - "Paintings_by_John_Atkinson_Grimshaw"
+        - "Paintings_by_Childe_Hassam"
+        - "Paintings_of_cities"
+      queries:
+        - "Canaletto Venice painting"
+        - "cityscape painting"
+        - "Grimshaw moonlight street"
+
+  old-masters:
+    met_museum:
+      queries:
+        - "Rembrandt"
+        - "Peter Paul Rubens"
+        - "Anthony van Dyck"
+        - "Frans Hals"
+        - "Titian"
+        - "Nicolas Poussin"
+        - "Claude Lorrain"
+        - "dutch golden age landscape"
+    art_institute_chicago:
+      queries:
+        - "Rembrandt"
+        - "Frans Hals"
+        - "El Greco"
+        - "Titian"
+        - "Rubens"
+        - "Dutch painting"
+        - "old master"
+    cleveland_museum:
+      queries:
+        - "Rembrandt"
+        - "Rubens"
+        - "Poussin"
+        - "Claude Lorrain"
+        - "van Dyck"
+        - "Titian"
+        - "Frans Hals"
+        - "El Greco"
+    wikimedia_commons:
+      categories:
+        - "Paintings_by_Rembrandt"
+        - "Paintings_by_Peter_Paul_Rubens"
+        - "Paintings_by_Claude_Lorrain"
+        - "Paintings_by_Jacob_van_Ruisdael"
+        - "Paintings_by_Meindert_Hobbema"
+        - "Paintings_by_Aelbert_Cuyp"
+        - "Paintings_by_Anthony_van_Dyck"
+        - "Paintings_by_Frans_Hals"
+        - "Paintings_by_Titian"
+      queries:
+        - "dutch golden age landscape painting"
+
+  women-artists:
+    # Artemisia Gentileschi and Vigée Le Brun are not on the curated
+    # major-artists list, so this theme must widen the artist filter.
+    major_artists_only: false
+    met_museum:
+      queries:
+        - "Berthe Morisot"
+        - "Mary Cassatt"
+        - "Artemisia Gentileschi"
+        - "Vigée Le Brun"
+        - "Rosa Bonheur"
+        - "Angelica Kauffmann"
+        - "Judith Leyster"
+        - "Marie Bracquemond"
+        - "Eva Gonzalès"
+    art_institute_chicago:
+      queries:
+        - "Mary Cassatt"
+        - "Berthe Morisot"
+        - "Georgia O'Keeffe"
+        - "Helen Frankenthaler"
+        - "Rosa Bonheur"
+        - "Angelica Kauffmann"
+        - "Judith Leyster"
+    cleveland_museum:
+      queries:
+        - "Cassatt"
+        - "Morisot"
+        - "Vigée Le Brun"
+        - "Rosa Bonheur"
+        - "Artemisia Gentileschi"
+        - "Angelica Kauffmann"
+        - "Judith Leyster"
+        - "Sofonisba Anguissola"
+    wikimedia_commons:
+      categories:
+        - "Paintings_by_Berthe_Morisot"
+        - "Paintings_by_Mary_Cassatt"
+        - "Paintings_by_Rosa_Bonheur"
+        - "Paintings_by_Artemisia_Gentileschi"
+        - "Paintings_by_Amrita_Sher-Gil"
+        - "Paintings_by_Marie_Bracquemond"
+        - "Paintings_by_Eva_Gonzalès"
+        - "Paintings_by_Judith_Leyster"
+        - "Paintings_by_Angelica_Kauffmann"
+        # No "Paintings_by_..." category exists for her; the artist category
+        # nests per-painting subcategories, which the category walker handles
+        - "Élisabeth_Vigée_Le_Brun"
+      queries:
+        - "Berthe Morisot painting"
+        - "Mary Cassatt painting"
+        - "Rosa Bonheur painting"
+
+  landscapes:
+    # Close to the default config, curated down to pure landscape painters
+    met_museum:
+      queries:
+        - "landscape painting"
+        - "river landscape"
+        - "mountain landscape"
+        - "John Constable"
+        - "J.M.W. Turner"
+        - "Corot landscape"
+        - "Caspar David Friedrich"
+        - "Albert Bierstadt"
+        - "Frederic Edwin Church"
+    art_institute_chicago:
+      queries:
+        - "landscape"
+        - "Camille Corot"
+        - "American landscape"
+        - "Winslow Homer"
+        - "Hudson River School"
+        - "Thomas Cole"
+    cleveland_museum:
+      queries:
+        - "landscape"
+        - "Turner"
+        - "Corot"
+        - "Frederic Church"
+        - "Albert Bierstadt"
+        - "Constable"
+    wikimedia_commons:
+      categories:
+        - "Landscape_paintings_in_the_Louvre"
+        - "Landscape_paintings_in_the_Musée_d'Orsay"
+        - "Landscape_paintings_in_the_National_Gallery_of_Art"
+        - "Paintings_by_John_Constable"
+        - "Paintings_by_Joseph_Mallord_William_Turner"
+        - "Paintings_by_Caspar_David_Friedrich"
+        - "Paintings_by_Jean-Baptiste-Camille_Corot"
+        - "Paintings_by_Albert_Bierstadt"
+        - "Paintings_by_Frederic_Edwin_Church"
+        - "Paintings_by_Thomas_Cole"
+        - "Paintings_by_Isaac_Levitan"
+        - "Paintings_by_Ivan_Shishkin"
+      queries:
+        - "Turner landscape painting"
+        - "Constable landscape painting"
+
 # --- Metadata Overlay ---
 overlay:
   enabled: true                 # Show title + artist on the painting

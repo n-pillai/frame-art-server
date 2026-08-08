@@ -166,6 +166,68 @@ art_sources:
       - "Turner landscape painting"
 ```
 
+### Themes
+
+Build a batch with a particular character — without hand-editing the source queries:
+
+```bash
+python batch_build.py --count 200 --theme impressionist
+python batch_build.py --list-themes          # see the catalog
+```
+
+A theme is a named bundle of per-source search inputs in the `themes:` section of
+`config.yaml`. Selecting one swaps in that theme's queries and categories for the sources it
+names, disables the museum sources it does not name, and leaves the rest of the pipeline
+(landscape/painting filters, per-artist caps, featured artists, processing) unchanged. With no
+`--theme` flag, batches behave exactly as before.
+
+Five themes ship in the catalog:
+
+| Theme | Character |
+|-------|-----------|
+| `impressionist` | Monet, Pissarro, Sisley, Renoir, Morisot, Caillebotte, Bazille, Hassam |
+| `cityscapes` | Vedute and street scenes — Canaletto, Guardi, Grimshaw, Hassam, Caillebotte |
+| `old-masters` | Rembrandt, Rubens, van Dyck, Titian, Claude Lorrain, the Dutch Golden Age |
+| `women-artists` | Morisot, Cassatt, Artemisia Gentileschi, Vigée Le Brun, Rosa Bonheur, Sher-Gil |
+| `landscapes` | The default config curated down to pure landscape painting |
+
+There is also a single-artist mode (mutually exclusive with `--theme`):
+
+```bash
+python batch_build.py --count 50 --artist "Claude Monet"
+```
+
+It derives a theme mechanically — the name as the query for every source, plus a best-guess
+Wikimedia category — and lifts the per-artist cap and major-artist filter for that artist,
+since a single-artist batch would otherwise stop at `max_per_artist`.
+
+**Adding a theme** is a config-only change. Add an entry under `themes:` naming any of the
+four sources (`met_museum`, `art_institute_chicago`, `cleveland_museum`,
+`wikimedia_commons`) with `queries:` (and `categories:` for Wikimedia) lists:
+
+```yaml
+themes:
+  seascapes:
+    met_museum:
+      queries: ["seascape", "Ivan Aivazovsky"]
+    cleveland_museum:
+      queries: ["seascape", "Aivazovsky"]
+    wikimedia_commons:
+      categories: ["Paintings_by_Ivan_Aivazovsky"]
+    # optional: keep only works whose title/medium/classification metadata
+    # contains one of these (case-insensitive)
+    keywords_any: ["seascape", "marine", "harbor"]
+    # optional: override the global setting for this theme — needed when the
+    # theme's artists are not on the curated major-artists list
+    major_artists_only: false
+```
+
+Themes are catalog-only by design (no free-text `--theme "anything"`): each source interprets
+a bare string differently, so free-text results would be unpredictable per source. Verify a
+new theme with `--dry-run` — a healthy theme should show a candidate pool of a few hundred at
+`--count 100`; if it starves, add queries/categories or set `major_artists_only: false`. CI
+validates the catalog shape (known source and option keys only).
+
 **Display settings (mat toggle):**
 ```yaml
 display:
@@ -246,8 +308,9 @@ Two pipeline extensions are specced in
 and planned in
 [`docs/plans/pipeline-extensions-build-plan-2026-08-07.md`](docs/plans/pipeline-extensions-build-plan-2026-08-07.md):
 
-1. **Theme-based batch selection** — build a batch by theme (e.g. "Impressionist",
-   "Cityscapes") instead of hand-editing source queries. *Planned, not yet built.*
+1. ~~**Theme-based batch selection**~~ — **built 2026-08-08**: `--theme` /
+   `--list-themes` / `--artist` (see [Themes](#themes)), with a five-theme
+   starter catalog tuned against the live museum APIs.
 2. ~~**Post-upload no-mat pass**~~ — **built 2026-08-08**: `tv_no_mat.py` (Quick Start
    step 4), verified end-to-end against a real TV.
 3. **Bulk artwork deletion** — one command clears all user-uploaded art from the TV, making a
