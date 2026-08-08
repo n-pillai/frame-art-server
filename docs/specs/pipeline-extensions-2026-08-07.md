@@ -1,6 +1,7 @@
 # Pipeline extensions — spec (captured 2026-08-07)
 
-**Status:** captured intent — not yet designed or built.
+**Status:** planned — build plan at
+`docs/plans/pipeline-extensions-build-plan-2026-08-07.md`; not yet built.
 
 **Context:** on 2026-08-07 `probe_matte.py` (committed with this spec) proved the Frame TV's
 art API can clear the TV-side hardware mat programmatically: `change_matte(content_id, "none")`

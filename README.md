@@ -230,8 +230,11 @@ frame-art-server/
 
 ## Roadmap
 
-Two pipeline extensions are specced (intent captured, not yet built) in
-[`docs/specs/pipeline-extensions-2026-08-07.md`](docs/specs/pipeline-extensions-2026-08-07.md):
+Two pipeline extensions are specced in
+[`docs/specs/pipeline-extensions-2026-08-07.md`](docs/specs/pipeline-extensions-2026-08-07.md)
+and planned in
+[`docs/plans/pipeline-extensions-build-plan-2026-08-07.md`](docs/plans/pipeline-extensions-build-plan-2026-08-07.md)
+(not yet built):
 
 1. **Theme-based batch selection** — build a batch by theme (e.g. "Impressionist",
    "Cityscapes") instead of hand-editing source queries.
