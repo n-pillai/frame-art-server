@@ -1,7 +1,8 @@
 # Pipeline extensions — spec (captured 2026-08-07)
 
-**Status:** B built 2026-08-08 (`tv_no_mat.py`); A planned, not yet built; C added 2026-08-08,
-planned, not yet built. Build plan at
+**Status:** all three built 2026-08-08 — A (`--theme`/`--list-themes`/`--artist` in
+`batch_build.py`), B (`tv_no_mat.py`), C (`tv_delete.py`; dry-run verified, first full
+destructive pass deliberately deferred to the next real batch refresh). Build record in
 `docs/plans/pipeline-extensions-build-plan-2026-08-07.md`.
 
 **Context:** on 2026-08-07 `probe_matte.py` (committed with this spec) proved the Frame TV's
