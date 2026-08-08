@@ -14,6 +14,7 @@ import json
 import logging
 import os
 import random
+import re
 import time
 from pathlib import Path
 from typing import Optional
@@ -585,6 +586,20 @@ _wiki_session.headers.update({
     "User-Agent": "FrameArtServer/1.0 (https://github.com/frame-art-server; open-source art display tool)",
 })
 
+# AIC's image CDN blocks script clients, discovered 2026-08-08: every IIIF
+# request — info.json included — returned 403 Forbidden, so it is client
+# filtering, not a size policy. Matrix-tested: a descriptive User-Agent alone
+# is NOT enough; their WAF admits requests carrying the AIC-User-Agent header
+# their API docs ask consumers to send (or a browser UA — we use the honest,
+# documented route). With both headers the same URLs return 200 at the full
+# 3840 width. Used for all non-Wikimedia downloads; the extra header is
+# ignored by other hosts. Contact is the repo URL, never an email.
+_art_session = requests.Session()
+_art_session.headers.update({
+    "User-Agent": "FrameArtServer/1.0 (https://github.com/n-pillai/frame-art-server; open-source art display tool)",
+    "AIC-User-Agent": "FrameArtServer (https://github.com/n-pillai/frame-art-server)",
+})
+
 
 def _museum_from_category(category: str) -> str:
     """Infer the museum name from a Wikimedia Commons category string.
@@ -971,6 +986,45 @@ def gather_local_artworks(local_path: str) -> list[dict]:
 # ---------------------------------------------------------------------------
 # Download helper
 # ---------------------------------------------------------------------------
+# AIC serves images through IIIF; the size segment is the only part we vary.
+_AIC_IIIF_RE = re.compile(
+    r"(?P<head>https://www\.artic\.edu/iiif/2/(?P<image_id>[^/]+)/full/)"
+    r"(?P<size>[^/]+)(?P<tail>/0/default\.jpg)$"
+)
+
+
+def aic_iiif_fallback_urls(url: str) -> list[str]:
+    """Smaller-size retry ladder for an AIC IIIF URL refused with 403.
+
+    The 2026-08-08 zero-AIC-images incident turned out to be User-Agent
+    filtering (fixed by _art_session above — with an identifying UA the full
+    3840 width serves fine). This ladder survives as defence in depth: if AIC
+    ever introduces a genuine width cap, the batch degrades to 1686 and then
+    native `full` instead of losing the museum entirely. A rung that serves
+    below the pipeline's 1500px minimum is rejected by the existing size
+    check afterwards, which is the right place for that decision.
+    Non-AIC URLs get no ladder — empty list, single attempt as before.
+    """
+    m = _AIC_IIIF_RE.match(url)
+    if not m:
+        return []
+    head, tail = m.group("head"), m.group("tail")
+    return [f"{head}1686,{tail}", f"{head}full{tail}"]
+
+
+def aic_cache_filename(url: str) -> Optional[str]:
+    """Cache filename for an AIC IIIF URL, or None for any other URL.
+
+    Every AIC IIIF URL ends in `/default.jpg`, so the generic last-segment
+    filename would make ALL AIC artworks share one cache file — the first
+    download would be silently reused for every later artwork, wrong image
+    under the wrong label. Latent until the 403 fix above made AIC downloads
+    succeed at all; the image_id is the unique part, so name the file by it.
+    """
+    m = _AIC_IIIF_RE.match(url)
+    return f"aic_{m.group('image_id')}.jpg" if m else None
+
+
 def download_image(url_or_path: str, cache_dir: str) -> Optional[str]:
     """Download an image to the cache directory. Returns local file path."""
     cache = Path(cache_dir)
@@ -980,8 +1034,8 @@ def download_image(url_or_path: str, cache_dir: str) -> Optional[str]:
     if os.path.isfile(url_or_path):
         return url_or_path
 
-    # Generate a filename from the URL
-    filename = url_or_path.split("/")[-1].split("?")[0]
+    # Generate a filename from the URL (AIC needs the image_id — see above)
+    filename = aic_cache_filename(url_or_path) or url_or_path.split("/")[-1].split("?")[0]
     if not filename:
         filename = f"art_{hash(url_or_path) & 0xFFFFFFFF}.jpg"
     local_path = cache / filename
@@ -990,21 +1044,35 @@ def download_image(url_or_path: str, cache_dir: str) -> Optional[str]:
         logger.debug(f"Cache hit: {local_path}")
         return str(local_path)
 
-    try:
-        logger.info(f"Downloading: {url_or_path[:100]}...")
-        # Use the Wikimedia session (with proper User-Agent) for Wikimedia URLs,
-        # otherwise Wikimedia returns 403 per their UA policy.
-        if "wikimedia.org" in url_or_path or "wikipedia.org" in url_or_path:
-            session = _wiki_session
-        else:
-            session = requests
-        resp = session.get(url_or_path, timeout=60, stream=True)
-        resp.raise_for_status()
-        with open(local_path, "wb") as f:
-            for chunk in resp.iter_content(chunk_size=8192):
-                f.write(chunk)
-        logger.info(f"Saved to: {local_path}")
-        return str(local_path)
-    except Exception as e:
-        logger.error(f"Download failed: {e}")
-        return None
+    # Both Wikimedia and AIC 403 generic User-Agents; every download goes out
+    # through an identifying session (Wikimedia keeps its policy-worded one).
+    if "wikimedia.org" in url_or_path or "wikipedia.org" in url_or_path:
+        session = _wiki_session
+    else:
+        session = _art_session
+
+    urls_to_try = [url_or_path] + aic_iiif_fallback_urls(url_or_path)
+    last_error: Exception | None = None
+    for attempt, url in enumerate(urls_to_try):
+        try:
+            logger.info(f"Downloading: {url[:100]}...")
+            resp = session.get(url, timeout=60, stream=True)
+            resp.raise_for_status()
+            with open(local_path, "wb") as f:
+                for chunk in resp.iter_content(chunk_size=8192):
+                    f.write(chunk)
+            logger.info(f"Saved to: {local_path}")
+            return str(local_path)
+        except requests.HTTPError as e:
+            last_error = e
+            status = e.response.status_code if e.response is not None else None
+            if status == 403 and attempt + 1 < len(urls_to_try):
+                next_size = urls_to_try[attempt + 1].split("/full/")[-1].split("/")[0]
+                logger.info(f"  403 at this size — retrying AIC IIIF at {next_size}")
+                continue
+            break
+        except Exception as e:
+            last_error = e
+            break
+    logger.error(f"Download failed: {last_error}")
+    return None

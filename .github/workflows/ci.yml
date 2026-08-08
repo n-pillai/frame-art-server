@@ -71,6 +71,9 @@ jobs:
       - name: No-mat pass logic
         run: python test_tv_no_mat.py
 
+      - name: Art source URL logic
+        run: python test_art_sources.py
+
       - name: Bulk delete logic
         run: python test_tv_delete.py
 

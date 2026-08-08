@@ -215,21 +215,32 @@ art_sources:
 #                       major-artists list need `false` here)
 themes:
   impressionist:
+    # Landscape-slanted query variants are deliberate: bare artist names pull
+    # portraits (Degas, Cassatt, Morisot especially), which survive every
+    # search-time filter and then die at the post-download aspect check —
+    # the single biggest attrition in the 2026-08-08 run. Steering the query
+    # toward landscapes cuts that waste at the source.
     met_museum:
       queries:
         - "impressionist painting"
         - "Claude Monet"
+        - "Monet landscape"
         - "Camille Pissarro"
+        - "Pissarro landscape"
         - "Alfred Sisley"
         - "Pierre-Auguste Renoir"
+        - "Renoir landscape"
         - "Berthe Morisot"
         - "Edgar Degas"
         - "Mary Cassatt"
         - "Gustave Caillebotte"
         - "french impressionist landscape"
+        - "impressionist garden"
+        - "impressionist seascape"
     art_institute_chicago:
       queries:
         - "Claude Monet"
+        - "Monet landscape"
         - "Pierre-Auguste Renoir"
         - "Gustave Caillebotte"
         - "Alfred Sisley"
@@ -239,6 +250,7 @@ themes:
         - "Mary Cassatt"
         - "Childe Hassam"
         - "Impressionism"
+        - "impressionist landscape"
     cleveland_museum:
       queries:
         - "Monet"
@@ -251,6 +263,7 @@ themes:
         - "Cassatt"
         - "Childe Hassam"
         - "impressionist"
+        - "impressionist landscape"
     wikimedia_commons:
       categories:
         - "Paintings_by_Claude_Monet"

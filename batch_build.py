@@ -984,12 +984,13 @@ def run_batch(
     dry_run: bool,
     keywords_any: list[str] | None = None,
     exempt_artist: str | None = None,
+    candidate_multiplier: int = 3,
 ):
     """Main batch processing loop — pulls from all enabled museum sources.
 
-    keywords_any and exempt_artist come from --theme/--artist resolution
-    (resolve_batch_inputs); both default to no-ops so the no-flag path is
-    unchanged.
+    keywords_any, exempt_artist and candidate_multiplier come from
+    --theme/--artist resolution in main(); all default to no-ops so the
+    no-flag path is unchanged.
     """
     os.makedirs(output_dir, exist_ok=True)
 
@@ -1019,9 +1020,13 @@ def run_batch(
     sources = config.get("art_sources", {})
 
     # ---- Smart candidate budget ----
-    # Only gather ~3x what we need.  Typical filter pass rate is ~30-40%,
-    # so a 3x multiplier gives a comfortable margin without over-fetching.
-    candidate_budget = remaining * 3
+    # Gather a multiple of what we need.  The default 3x assumes a ~30-40%
+    # filter pass rate — right for the wide default config, but themed/artist
+    # runs narrow the query space AND skew survival (the 2026-08-08
+    # impressionist run passed only ~14%: portrait-heavy artists die at the
+    # aspect check), so they gather 5x — see main().  The budget also sets
+    # per-query fetch depth in every source, not just the total.
+    candidate_budget = remaining * candidate_multiplier
     # Split budget across enabled sources (Met gets a bigger share because
     # it has more lossy filtering — many IDs turn out to be prints/drawings).
     enabled_count = sum(1 for key in ("met_museum", "art_institute_chicago",
@@ -1030,7 +1035,7 @@ def run_batch(
                         if sources.get(key, {}).get("enabled", key == "met_museum"))
     per_source_budget = max(80, candidate_budget // max(1, enabled_count))
     logger.info(f"Candidate budget: {candidate_budget} total, ~{per_source_budget}/source "
-                f"(for {remaining} images @ 3x multiplier)")
+                f"(for {remaining} images @ {candidate_multiplier}x multiplier)")
 
     # ---- Build a unified pool of artworks from all enabled sources ----
     artwork_pool = []
@@ -1249,7 +1254,10 @@ def run_batch(
         # filter and the per-artist cap — the batch is ABOUT that artist
         is_exempt = bool(exempt_artist) and exempt_artist in artwork.get("artist", "").lower()
         if major_only and not is_local and not is_featured and not is_exempt and not is_major_artist(artwork.get("artist", "")):
-            logger.debug(f"  Skipping minor artist: {artwork.get('artist', 'Unknown')} — \"{artwork.get('title', '')}\"")
+            # INFO, not debug: the summary counts these, and deciding whether a
+            # theme needs major_artists_only: false requires seeing WHO was
+            # skipped (44 nameless skips in the 2026-08-08 impressionist run).
+            logger.info(f"  Skipping minor artist: {artwork.get('artist', 'Unknown')} — \"{artwork.get('title', '')}\"")
             skipped_minor_artist += 1
             continue
 
@@ -1435,8 +1443,13 @@ The TV handles rotation. No Pi or server needed.
     elif args.artist:
         logger.info(f"Single-artist batch: {args.artist}")
 
+    # Themed/artist runs deepen the candidate pool: a theme narrows the query
+    # space and skews toward filter-heavy candidates, so 3x under-gathers
+    # (43/200 on the 2026-08-08 impressionist run). The default path stays 3x.
+    multiplier = 5 if (args.theme or args.artist) else 3
     run_batch(config, args.count, args.output, args.resume, args.dry_run,
-              keywords_any=keywords_any, exempt_artist=exempt_artist)
+              keywords_any=keywords_any, exempt_artist=exempt_artist,
+              candidate_multiplier=multiplier)
     return 0
 
 
