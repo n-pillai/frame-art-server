@@ -45,6 +45,17 @@ def main():
     check("non-IIIF artic URL -> no ladder",
           aic_iiif_fallback_urls("https://www.artic.edu/artworks/123") == [])
 
+    print("\nmajor-artists list — the 2026-08-08 skip-log additions match:")
+    from art_sources import is_major_artist
+    for artist in ("Eugène Boudin", "Henri Fantin-Latour", "George Inness",
+                   "Theodore Robinson", "James Tissot",
+                   "Pierre Puvis de Chavannes", "Ernest Meissonier",
+                   "Goya (Francisco de Goya y Lucientes)"):
+        check(f"{artist} is major", is_major_artist(artist))
+    check("bare 'Robinson' does NOT match (common surname)",
+          not is_major_artist("Boardman Robinson"))
+    check("stock-scan junk still excluded", not is_major_artist("Rawpixel Ltd"))
+
     print("\ncache filename — AIC names by image_id, everything else untouched:")
     check("AIC filename carries the image id",
           aic_cache_filename(AIC) == "aic_a38e2828-ec6f-ece1-a30f-70243449197b.jpg",
