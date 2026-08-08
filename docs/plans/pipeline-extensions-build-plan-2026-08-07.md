@@ -1,6 +1,7 @@
 # Pipeline extensions — build plan (2026-08-07)
 
-**Status:** planned — not yet built. Implements
+**Status:** B built 2026-08-08 (`tv_no_mat.py` + `tv_session.py`, verified end-to-end against a
+real TV — apply, undo file, restore all exercised live). A planned, not yet built. Implements
 [`docs/specs/pipeline-extensions-2026-08-07.md`](../specs/pipeline-extensions-2026-08-07.md).
 Build order is **B then A**, per the spec: B is small and proven end-to-end by
 `probe_matte.py` (20/20 artworks cleared on a real TV, 2026-08-07); A is the larger design job.

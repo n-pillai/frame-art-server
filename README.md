@@ -65,7 +65,15 @@ The script searches all configured sources, downloads high-res public domain ori
 1. Copy the `frame_tv_art` folder to a USB drive (FAT32 or exFAT)
 2. Plug USB into the One Connect Box
 3. On the TV: Menu > Art Mode > My Photos > import from USB
-4. Set each image's mat to "No Mat" (unfortunately Samsung has no global setting for this)
+4. Clear the mat borders in one command instead of clicking through every image:
+
+   ```bash
+   pip install samsungtvws          # one-time; the TV scripts are the only thing needing it
+   python tv_no_mat.py --ip <tv-ip>           # dry run: shows what would change
+   python tv_no_mat.py --ip <tv-ip> --apply   # sets every artwork to "no mat"
+   ```
+
+   The TV must be in Art Mode (or fully on); the first run shows an Allow prompt on the TV — accept it. Every `--apply` writes an undo file, and `--restore <file>` puts things back. (Manual fallback: set each image's mat to "No Mat" in the TV menu — Samsung has no global setting for it.)
 5. **Enable the slideshow — this is what makes the art rotate.** In Art Mode > My Photos, select the imported images and start the slideshow with shuffle on, choosing a change interval (e.g. every hour or every day). **If you skip this step, the TV displays one static image forever** — the script only builds the images; all rotation is done by the TV.
 
 ### 4. Refresh whenever you want
@@ -214,15 +222,18 @@ frame-art-server/
   batch_build.py       # Main script -- run this to build a batch
   art_sources.py       # Museum API integrations (Met, AIC, CMA, Wikimedia)
   image_processor.py   # 4K processing, crop, sharpen, sRGB, metadata overlay
+  tv_no_mat.py         # Post-upload pass: set every artwork on the TV to "no mat"
+  probe_matte.py       # Single-artwork TV diagnostic (what does your TV offer?)
+  tv_session.py        # Shared TV pairing/token/logging plumbing (needs samsungtvws)
   config.yaml          # Configuration (queries, sources, display settings)
-  requirements.txt     # Python dependencies
+  requirements.txt     # Python dependencies (TV scripts need samsungtvws separately)
 ```
 
 ---
 
 ## Known Limitations
 
-**Samsung Frame TV mat/border:** The TV defaults to showing a mat border on every image and there is no global "no mat" setting in the TV's own menu. However, the mat *can* be cleared per-artwork over the network: `probe_matte.py` (in this repo) connects to the TV, shows what mat options your model offers, and can set a named artwork — and, verified 2026-08-07, a whole library — to `none`. It needs the TV awake/in Art Mode and a one-time pairing prompt; see `docs/solutions/integration-issues/frame-tv-art-channel-pairing-and-matte-api-2026-08-07.md`. An automated post-upload no-mat pass is on the roadmap (below).
+**Samsung Frame TV mat/border:** The TV defaults to showing a mat border on every image and there is no global "no mat" setting in the TV's own menu. `tv_no_mat.py` (Quick Start step 4) clears them all over the network instead: it discovers what mat options your TV model actually offers, verifies `"none"` is among them before touching anything, and writes an undo file for every applied run. It needs the TV awake/in Art Mode and a one-time pairing prompt; if your model doesn't offer `"none"` or the art channel is unreachable, it stops and tells you rather than guessing. `probe_matte.py` remains as the single-artwork diagnostic. Details: `docs/solutions/integration-issues/frame-tv-art-channel-pairing-and-matte-api-2026-08-07.md`.
 
 **Wikimedia museum attribution:** When art comes through Wikimedia Commons, the museum name is inferred from the category or credit metadata. Some images may show no museum if the source metadata is incomplete.
 
@@ -233,14 +244,12 @@ frame-art-server/
 Two pipeline extensions are specced in
 [`docs/specs/pipeline-extensions-2026-08-07.md`](docs/specs/pipeline-extensions-2026-08-07.md)
 and planned in
-[`docs/plans/pipeline-extensions-build-plan-2026-08-07.md`](docs/plans/pipeline-extensions-build-plan-2026-08-07.md)
-(not yet built):
+[`docs/plans/pipeline-extensions-build-plan-2026-08-07.md`](docs/plans/pipeline-extensions-build-plan-2026-08-07.md):
 
 1. **Theme-based batch selection** — build a batch by theme (e.g. "Impressionist",
-   "Cityscapes") instead of hand-editing source queries.
-2. **Post-upload no-mat pass** — after a USB import, one command sets every artwork on the TV
-   to "no mat", discovering what your TV model actually offers before applying anything.
-   Builds on `probe_matte.py`, which is already usable by hand.
+   "Cityscapes") instead of hand-editing source queries. *Planned, not yet built.*
+2. ~~**Post-upload no-mat pass**~~ — **built 2026-08-08**: `tv_no_mat.py` (Quick Start
+   step 4), verified end-to-end against a real TV.
 
 ---
 

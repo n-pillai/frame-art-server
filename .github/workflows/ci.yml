@@ -39,7 +39,7 @@ jobs:
           cache: "pip"
 
       - name: Compile every module
-        run: python -m compileall -q batch_build.py art_sources.py image_processor.py
+        run: python -m compileall -q batch_build.py art_sources.py image_processor.py tv_session.py tv_no_mat.py probe_matte.py
 
       - name: Install only what requirements.txt declares
         run: pip install -r requirements.txt
@@ -48,9 +48,13 @@ jobs:
         # A module used in code but absent from requirements.txt fails here.
         # Note: importing batch_build configures logging with a FileHandler, so
         # this writes batch_build.log into the runner. Harmless, and gitignored.
+        # The TV scripts import here too, WITHOUT samsungtvws installed (it is
+        # deliberately not in requirements.txt) -- this guards the lazy-import
+        # rule: the TV dependency must never creep up to module scope.
         run: |
           python -c "
           import batch_build, art_sources, image_processor
+          import tv_session, tv_no_mat, probe_matte
           print('all modules import against declared dependencies')
           "
 
@@ -62,6 +66,9 @@ jobs:
 
       - name: Label sanitization
         run: python test_label_sanitization.py
+
+      - name: No-mat pass logic
+        run: python test_tv_no_mat.py
 
       - name: Validate config.yaml
         run: |

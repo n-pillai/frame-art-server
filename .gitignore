@@ -7,6 +7,7 @@ frame_tv_art_*/
 batch_state.json
 batch_build.log
 frame_art.log
+no_mat_undo_*.json
 
 # Test artifacts
 test_painting.jpg
