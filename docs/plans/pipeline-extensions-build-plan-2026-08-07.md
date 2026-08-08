@@ -1,11 +1,10 @@
 # Pipeline extensions — build plan (2026-08-07)
 
-**Status:** B built 2026-08-08 (`tv_no_mat.py` + `tv_session.py`, verified end-to-end against a
-real TV — apply, undo file, restore all exercised live). A and C planned, not yet built
-(C — bulk artwork deletion — added to the spec and this plan 2026-08-08). Implements
+**Status: all three built 2026-08-08** — see the build record at the end of this document.
+Implements
 [`docs/specs/pipeline-extensions-2026-08-07.md`](../specs/pipeline-extensions-2026-08-07.md).
-Build order was **B first**, per the spec; between A (larger design job) and C (small, rides on
-B's plumbing) the order is Nisha's call per session.
+B was built first per the spec; A and C were then built in parallel (separate worktrees,
+sequenced merges — PRs #19, #21, #22).
 
 ---
 
@@ -209,6 +208,26 @@ artwork, chosen sacrificially.
   decision — it belongs in a future spec revision if the manual step keeps hurting, not
   smuggled into B.
 - **No free-text theme passthrough** (decision 5).
+
+## Build record (2026-08-08)
+
+- **B** (PR #19) — as planned, plus one live-verification catch: `available()` lists an
+  artwork once per category it appears in (284 entries = 145 distinct), fixed with
+  `dedupe_items()`; recorded in the pairing/matte solutions doc.
+- **C** (PR #21) — C1 probe verified `delete_list` live on one sacrificial artwork and found
+  `content_type` (`usb`/`myphoto`) as a stronger scope signal than id naming; the shipped scope
+  filter requires **both** signals. Dry-run verified against the TV (144 in scope, 0 excluded);
+  ⚠️ **the first full destructive pass deliberately waits for the next real batch refresh.**
+- **A** (PR #22) — five themes per Nisha (impressionist, cityscapes, old-masters,
+  women-artists, landscapes — the plan's four were superseded) plus `--artist` single-artist
+  pulls that bypass `major_artists_only` and the per-artist cap. All themes tuned live to
+  healthy pools (156–251 candidates at `--count 100`); `cityscapes` and `women-artists` ship
+  with `major_artists_only: false`. Also fixed a pre-existing `art_sources.py` bug: Commons
+  now appends `?utm_source=` params to image URLs, which made the `endswith(".jpg")` check
+  silently empty **all** Wikimedia results, default config included.
+- **Follow-up, small:** the default config's `Paintings_by_J._M._W._Turner` Wikimedia category
+  is dead (the live one is `Paintings_by_Joseph_Mallord_William_Turner`) — left untouched by
+  A's regression guarantee; fix separately.
 
 ## Personal-data & credentials posture
 
