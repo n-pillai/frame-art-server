@@ -1,10 +1,11 @@
 # Pipeline extensions — build plan (2026-08-07)
 
 **Status:** B built 2026-08-08 (`tv_no_mat.py` + `tv_session.py`, verified end-to-end against a
-real TV — apply, undo file, restore all exercised live). A planned, not yet built. Implements
+real TV — apply, undo file, restore all exercised live). A and C planned, not yet built
+(C — bulk artwork deletion — added to the spec and this plan 2026-08-08). Implements
 [`docs/specs/pipeline-extensions-2026-08-07.md`](../specs/pipeline-extensions-2026-08-07.md).
-Build order is **B then A**, per the spec: B is small and proven end-to-end by
-`probe_matte.py` (20/20 artworks cleared on a real TV, 2026-08-07); A is the larger design job.
+Build order was **B first**, per the spec; between A (larger design job) and C (small, rides on
+B's plumbing) the order is Nisha's call per session.
 
 ---
 
@@ -33,6 +34,12 @@ Build order is **B then A**, per the spec: B is small and proven end-to-end by
    deliberately not built in v1: each source interprets a bare string differently, so the
    results would be unpredictable per source, and the catalog can always gain entries. Revisit
    only if the catalog proves too rigid in use.
+6. **Irreversible operations get a stronger gate than reversible ones (extension C).** B's
+   safety model (dry-run default + `--apply`) is calibrated to an operation with an undo file.
+   Deletion has no undo, so it adds one more layer: `--apply` prompts for a typed
+   confirmation of the exact count ("type 145 to confirm"), with `--yes` to bypass for
+   scripted use. A count that changed between dry-run and prompt is itself a warning sign the
+   prompt makes visible.
 
 ---
 
@@ -146,6 +153,50 @@ config untouched by default); CI green.
 
 **Size:** one to two sessions — A3 (tuning real source results per theme) is the honest
 unknown, not the code.
+
+## C. Bulk artwork deletion — `tv_delete.py`
+
+One command deletes all user-uploaded artworks from the TV — the front half of the refresh
+cycle (delete old batch → USB import → `tv_no_mat.py`).
+
+### Behavior contract
+
+1. `python tv_delete.py --ip <tv-ip>` — **dry run by default**: connects, lists what would be
+   deleted (count + content ids + labels where available), deletes nothing.
+2. **Scope check before anything else:** only user-uploaded content is ever targeted. The
+   filter (expected: `MY_F*` content ids / `MY-C*` categories, as observed on this TV) is
+   **verified live at C1**, not assumed from naming — anything outside the verified scope is
+   excluded and reported, never deleted.
+3. `--apply` prompts for a **typed confirmation of the exact count** (decision 6); `--yes`
+   bypasses the prompt for scripted use. Per-item error handling as in B — one failure never
+   aborts the pass.
+4. **No undo file — and the output says so.** Every applied run writes a deletion manifest
+   (`deleted_artworks_<timestamp>.json`, gitignored: ids + labels), explicitly labeled a
+   receipt, not an undo. The recovery path printed at the end is re-import from the local
+   `frame_tv_art/` output.
+5. Exit summary: deleted / excluded / failed counts; non-zero exit if anything failed. Same
+   preconditions hint as B on connection failure.
+
+### Build steps
+
+| # | Step | Verify |
+|---|------|--------|
+| C1 | Probe-first: verify `delete()` on ONE sacrificial artwork on the real TV (extend `probe_matte.py` or a `--probe-delete` flag); observe scope semantics, whether the displayed artwork can be deleted, and per-item vs `delete_list()` behavior | the artwork is gone from `available()` and the TV screen; scope filter confirmed against real category/id values |
+| C2 | `tv_delete.py` pure logic: scope filter, confirmation-count check, manifest shape; reuse `dedupe_items` / loop pattern from `tv_no_mat.py` (promote shared pieces to `tv_session.py` only if C actually reuses them) | `test_tv_delete.py` — mocked, no TV |
+| C3 | Wire the connected flow: dry-run report, typed-count gate, delete loop, manifest write, exit codes | real-TV run: dry-run, then a small scoped apply, then the full pass when a batch refresh is actually wanted |
+| C4 | CI: compile/import/test steps for the new script | CI green without `samsungtvws` installed |
+| C5 | Docs: README refresh-cycle section (delete → import → no-mat), Known Limitations, Roadmap; spec/plan status lines | docs match behavior |
+
+**Acceptance:** dry-run lists exactly the user-uploaded set and nothing else; `--apply`
+requires the typed count (or `--yes`); a full pass empties the TV's user library with a
+manifest written; scope exclusions and failures are reported per item; CI green.
+
+**Size:** one short session, gated on C1 — the delete call and its scope semantics are the
+only unverified pieces; everything else is B's proven pattern minus the undo.
+
+⚠️ **C3's full pass is destructive and should run when a refresh is genuinely wanted** — the
+natural moment is right before the next USB import, not as a test. The C1 probe costs one
+artwork, chosen sacrificially.
 
 ---
 

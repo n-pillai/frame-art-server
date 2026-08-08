@@ -250,6 +250,9 @@ and planned in
    "Cityscapes") instead of hand-editing source queries. *Planned, not yet built.*
 2. ~~**Post-upload no-mat pass**~~ — **built 2026-08-08**: `tv_no_mat.py` (Quick Start
    step 4), verified end-to-end against a real TV.
+3. **Bulk artwork deletion** — one command clears all user-uploaded art from the TV, making a
+   full refresh delete → USB import → no-mat pass. *Planned, not yet built; deletion is
+   irreversible, so it ships with a stronger confirmation gate and a deletion manifest.*
 
 ---
 
