@@ -60,4 +60,9 @@ failures.
 - The token lives outside the repo (`~/.frame_art_probe_token`) because it is a credential and
   the repo is public.
 - `samsungtvws` logs the pairing token at INFO level — keep its logger at WARNING or above
-  (probe_matte.py pins this) so the token cannot reach a terminal or log file.
+  (tv_session.py pins this for every script using it) so the token cannot reach a terminal or
+  log file.
+- **`available()` lists the same artwork once per category it appears in** (observed
+  2026-08-08: 284 entries for 145 distinct artworks). Dedupe by `content_id` before counting
+  or iterating, or a bulk pass double-applies and over-reports (tv_no_mat.py's
+  `dedupe_items()`).

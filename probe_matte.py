@@ -46,16 +46,11 @@ from __future__ import annotations
 
 import argparse
 import json
-import logging
 import sys
-from pathlib import Path
 
-# The TV issues an access token on first pairing. Deliberately stored OUTSIDE
-# this repo: it is a credential, this repo is public, and it matches none of the
-# .gitignore patterns -- so a stray `git add -A` would publish it. Keeping it in
-# the home directory removes that failure mode entirely rather than relying on
-# an ignore rule.
-TOKEN_FILE = str(Path.home() / ".frame_art_probe_token")
+# Pairing, token storage, and the samsungtvws token-logging pin all live in
+# tv_session.py, shared with tv_no_mat.py -- see that module for the rationale.
+from tv_session import connect
 
 
 def main() -> int:
@@ -73,25 +68,12 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    # samsungtvws logs the pairing token at INFO level, not debug:
-    #   connection.py   _LOGGING.info("New token %s", token)
-    #   authenticator.py LOGGER.info("Token (ctx): %s", token)
-    # This script never configures logging, so INFO currently goes nowhere --
-    # but that is a property of what happens to be imported, not a guarantee.
-    # Note batch_build.py calls logging.basicConfig(level=INFO, ...) with a
-    # FileHandler at module scope, so anything importing it turns those lines on
-    # and writes the token to batch_build.log and to stdout. Pinned shut here so
-    # the token cannot reach a terminal or a log file regardless of import order.
-    logging.getLogger("samsungtvws").setLevel(logging.WARNING)
-    logging.getLogger("samsungtvws").propagate = False
-
     try:
-        from samsungtvws import SamsungTVWS
+        tv = connect(args.ip)
     except ImportError:
         print("samsungtvws is not installed.  pip install samsungtvws", file=sys.stderr)
         return 2
 
-    tv = SamsungTVWS(host=args.ip, port=8002, token_file=TOKEN_FILE, name="frame-art-probe")
     art = tv.art()
 
     # ---- 1. Is this even a Frame? -----------------------------------------
