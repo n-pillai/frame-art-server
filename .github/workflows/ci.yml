@@ -2,9 +2,10 @@ name: ci
 
 # Mostly a smoke check rather than a test suite: the repo has a small set of
 # real unit test files (test_logging_config.py, test_image_processor.py,
-# test_label_sanitization.py, test_tv_no_mat.py, test_themes.py) and the rest
-# of the steps below cover what can be checked without more. As real tests
-# arrive they should replace these steps rather than accumulate alongside them.
+# test_label_sanitization.py, test_tv_no_mat.py, test_tv_delete.py,
+# test_themes.py) and the rest of the steps below cover what can be checked
+# without more. As real tests arrive they should replace these steps rather
+# than accumulate alongside them.
 #
 # What it actually catches:
 #   1. syntax errors in any module
@@ -39,7 +40,7 @@ jobs:
           cache: "pip"
 
       - name: Compile every module
-        run: python -m compileall -q batch_build.py art_sources.py image_processor.py tv_session.py tv_no_mat.py probe_matte.py
+        run: python -m compileall -q batch_build.py art_sources.py image_processor.py tv_session.py tv_no_mat.py tv_delete.py probe_matte.py
 
       - name: Install only what requirements.txt declares
         run: pip install -r requirements.txt
@@ -54,7 +55,7 @@ jobs:
         run: |
           python -c "
           import batch_build, art_sources, image_processor
-          import tv_session, tv_no_mat, probe_matte
+          import tv_session, tv_no_mat, tv_delete, probe_matte
           print('all modules import against declared dependencies')
           "
 
@@ -69,6 +70,9 @@ jobs:
 
       - name: No-mat pass logic
         run: python test_tv_no_mat.py
+
+      - name: Bulk delete logic
+        run: python test_tv_delete.py
 
       - name: Theme selection logic
         run: python test_themes.py
