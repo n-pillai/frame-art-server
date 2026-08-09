@@ -59,6 +59,7 @@ ITEMS = [
     {"content_id": "MY_F0003"},                        # MY_F but no content_type
     {"content_id": "MY_F0004", "content_type": None},  # explicit null
     {"content_id": "MY_F0005", "content_type": "store"},   # wrong type
+    {"content_id": "MY_F0006", "content_type": "mobile"},  # network upload
     {"content_id": "SAM-S1234", "content_type": "usb"},    # wrong id prefix
     {"content_id": "SAM-S5678", "content_type": "mobile"},
     {"content_type": "usb"},                           # no content_id at all
@@ -66,23 +67,24 @@ ITEMS = [
 
 
 def main():
-    print("scope — user-uploaded needs BOTH signals (MY_F id AND usb/myphoto type):")
+    print("scope — user-uploaded needs BOTH signals (MY_F id AND usb/myphoto/mobile type):")
     check("usb item in scope", in_scope(ITEMS[0]))
     check("myphoto item in scope", in_scope(ITEMS[2]))
     check("MY_F with missing content_type excluded (conservative)",
           not in_scope(ITEMS[3]))
     check("MY_F with null content_type excluded", not in_scope(ITEMS[4]))
     check("MY_F with unrecognized content_type excluded", not in_scope(ITEMS[5]))
-    check("usb item without MY_F prefix excluded", not in_scope(ITEMS[6]))
-    check("non-user item excluded", not in_scope(ITEMS[7]))
-    check("item without content_id excluded", not in_scope(ITEMS[8]))
+    check("network-uploaded (mobile) item in scope", in_scope(ITEMS[6]))
+    check("usb item without MY_F prefix excluded", not in_scope(ITEMS[7]))
+    check("mobile without MY_F prefix excluded", not in_scope(ITEMS[8]))
+    check("item without content_id excluded", not in_scope(ITEMS[9]))
     check("content_type matched case-insensitively",
           in_scope({"content_id": "MY_F9999", "content_type": "USB"}))
 
     print("\npartition — everything lands on exactly one side:")
     targets, excluded = partition_scope(ITEMS)
-    check("targets are the three user uploads",
-          [t["content_id"] for t in targets] == ["MY_F0663", "MY_F0001", "MY_F0002"],
+    check("targets are the four user uploads",
+          [t["content_id"] for t in targets] == ["MY_F0663", "MY_F0001", "MY_F0002", "MY_F0006"],
           str([t.get("content_id") for t in targets]))
     check("everything else excluded, nothing dropped",
           len(targets) + len(excluded) == len(ITEMS))
@@ -92,7 +94,7 @@ def main():
     tripled = [dict(ITEMS[0], category_id=c) for c in ("MY-C0002", "MY-C0008")]
     targets, _ = partition_scope(dedupe_items(tripled + ITEMS[1:]))
     check("deduped scope counts each artwork once",
-          [t["content_id"] for t in targets] == ["MY_F0663", "MY_F0001", "MY_F0002"],
+          [t["content_id"] for t in targets] == ["MY_F0663", "MY_F0001", "MY_F0002", "MY_F0006"],
           str([t.get("content_id") for t in targets]))
 
     print("\nconfirmation — the typed count must match exactly:")
@@ -107,25 +109,25 @@ def main():
     targets, _ = partition_scope(ITEMS)
     ordered, displayed_last = order_targets(targets, "MY_F0663")
     check("displayed moved to the end",
-          [t["content_id"] for t in ordered] == ["MY_F0001", "MY_F0002", "MY_F0663"],
+          [t["content_id"] for t in ordered] == ["MY_F0001", "MY_F0002", "MY_F0006", "MY_F0663"],
           str([t.get("content_id") for t in ordered]))
     check("flag says displayed is last", displayed_last)
     ordered, displayed_last = order_targets(targets, None)
     check("no current id -> natural order",
-          [t["content_id"] for t in ordered] == ["MY_F0663", "MY_F0001", "MY_F0002"])
+          [t["content_id"] for t in ordered] == ["MY_F0663", "MY_F0001", "MY_F0002", "MY_F0006"])
     check("no current id -> flag off", not displayed_last)
     ordered, displayed_last = order_targets(targets, "MY_F9999")
     check("current id not in scope -> natural order, flag off",
-          not displayed_last and len(ordered) == 3)
+          not displayed_last and len(ordered) == 4)
 
     print("\ndelete loop — per-item calls, one failure never aborts the pass:")
     art = FakeArt(failing={"MY_F0001"})
     deleted, failed = delete_items(art, targets)
     check("failing item reported", [c for c, _ in failed] == ["MY_F0001"])
     check("later item still processed",
-          [d["content_id"] for d in deleted] == ["MY_F0663", "MY_F0002"])
+          [d["content_id"] for d in deleted] == ["MY_F0663", "MY_F0002", "MY_F0006"])
     check("one id per delete_list call (proven call shape)",
-          art.calls == [["MY_F0663"], ["MY_F0002"]], str(art.calls))
+          art.calls == [["MY_F0663"], ["MY_F0002"], ["MY_F0006"]], str(art.calls))
     check("deleted carries the full item record",
           deleted[0].get("image_date") == "2026:03:31 11:07:17")
 
@@ -135,12 +137,12 @@ def main():
     check("manifest says it is not an undo", "NOT an undo" in manifest["note"])
     check("manifest names the recovery path", "frame_tv_art/" in manifest["note"])
     check("manifest holds only the deleted items, full records",
-          [d["content_id"] for d in manifest["deleted"]] == ["MY_F0663", "MY_F0002"]
+          [d["content_id"] for d in manifest["deleted"]] == ["MY_F0663", "MY_F0002", "MY_F0006"]
           and manifest["deleted"][0]["category_id"] == "MY-C0002")
     check("failed item absent from manifest",
           all(d["content_id"] != "MY_F0001" for d in manifest["deleted"]))
     check("clean pass -> manifest covers every target",
-          len(build_manifest(delete_items(FakeArt(), targets)[0])["deleted"]) == 3)
+          len(build_manifest(delete_items(FakeArt(), targets)[0])["deleted"]) == 4)
 
     print("\ndry-run guarantee — scope selection alone never touches the TV:")
     art_dry = FakeArt()

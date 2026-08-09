@@ -201,8 +201,12 @@ artwork, chosen sacrificially.
 
 ## Out of scope (deliberate)
 
-- **No daemon, scheduler, uploader, or persistent TV connection** — the spec narrows the April
-  2026 batch-only decision to one-shot scripts; this plan does not widen it further.
+- **No daemon, scheduler, or persistent TV connection** — the spec narrows the April 2026
+  batch-only decision to one-shot scripts; this plan does not widen it further. *(Amended
+  2026-08-08: "no uploader" was originally in this list. It was reversed the same day the USB
+  step failed in practice — the April decision's own recorded trigger, "only if the manual TV
+  step proves annoying," firing a third time. `tv_upload.py` is still a one-shot script; see
+  the build record.)*
 - **No slideshow/auto-rotation control** (`set_auto_rotation_status` exists in samsungtvws and
   would automate the manual shuffle step behind the July rotation issue). Real, but a separate
   decision — it belongs in a future spec revision if the manual step keeps hurting, not
@@ -225,6 +229,13 @@ artwork, chosen sacrificially.
   with `major_artists_only: false`. Also fixed a pre-existing `art_sources.py` bug: Commons
   now appends `?utm_source=` params to image URLs, which made the `endswith(".jpg")` check
   silently empty **all** Wikimedia results, default config included.
+- **D (unplanned, 2026-08-08, PR #26)** — `tv_upload.py`, network upload with the mat set to
+  `none` per image at upload time. Built when the USB import failed physically mid-refresh;
+  probe-verified first (single image up, matte confirmed `none`, `content_type: "mobile"`,
+  cleaned up). The `"mobile"` discovery also fixed a latent scope gap in `tv_delete.py`, whose
+  user-content filter would have excluded network-uploaded art from future refreshes. Upload
+  receipts (`uploaded_artworks_*.json`, gitignored) record filename → content_id. The refresh
+  cycle is now delete → upload, two commands, no USB; `tv_no_mat.py` becomes a repair tool.
 - **Follow-up, small:** the default config's `Paintings_by_J._M._W._Turner` Wikimedia category
   is dead (the live one is `Paintings_by_Joseph_Mallord_William_Turner`) — left untouched by
   A's regression guarantee; fix separately.

@@ -9,6 +9,7 @@ batch_build.log
 frame_art.log
 no_mat_undo_*.json
 deleted_artworks_*.json
+uploaded_artworks_*.json
 
 # Test artifacts
 test_painting.jpg

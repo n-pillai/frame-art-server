@@ -64,7 +64,10 @@ from tv_no_mat import dedupe_items
 from tv_session import connect
 
 USER_ID_PREFIX = "MY_F"
-USER_CONTENT_TYPES = {"usb", "myphoto"}
+# "usb" and "myphoto" observed at the C1 probe (2026-08-08); "mobile" is what
+# the TV stamps on network uploads (tv_upload.py) -- verified live the same
+# day. Without it, a network-uploaded batch would be invisible to this pass.
+USER_CONTENT_TYPES = {"usb", "myphoto", "mobile"}
 
 PRECONDITIONS_HINT = """\
 Could not reach the TV's art channel. Check, in order:
