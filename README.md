@@ -62,32 +62,45 @@ The script searches all configured sources, downloads high-res public domain ori
 
 ### 3. Load onto the Frame TV
 
+**Over the network (recommended — no USB):**
+
+```bash
+pip install samsungtvws          # one-time; the TV scripts are the only thing needing it
+python tv_upload.py --ip <tv-ip> --folder ./frame_tv_art            # dry run
+python tv_upload.py --ip <tv-ip> --folder ./frame_tv_art --apply    # uploads, mat already "none"
+```
+
+The TV must be in Art Mode (or fully on); the first run shows an Allow prompt on the TV — accept it. Each image uploads with its mat already set to "none", so no separate mat pass is needed. A 100+ image batch takes 10–20 minutes over the websocket. Every `--apply` writes a receipt of the new content ids. The TV does not deduplicate — upload into a cleared library (`tv_delete.py`) or you get doubles.
+
+**Or via USB (the offline fallback):**
+
 1. Copy the `frame_tv_art` folder to a USB drive (FAT32 or exFAT)
 2. Plug USB into the One Connect Box
 3. On the TV: Menu > Art Mode > My Photos > import from USB
 4. Clear the mat borders in one command instead of clicking through every image:
 
    ```bash
-   pip install samsungtvws          # one-time; the TV scripts are the only thing needing it
    python tv_no_mat.py --ip <tv-ip>           # dry run: shows what would change
    python tv_no_mat.py --ip <tv-ip> --apply   # sets every artwork to "no mat"
    ```
 
-   The TV must be in Art Mode (or fully on); the first run shows an Allow prompt on the TV — accept it. Every `--apply` writes an undo file, and `--restore <file>` puts things back. (Manual fallback: set each image's mat to "No Mat" in the TV menu — Samsung has no global setting for it.)
-5. **Enable the slideshow — this is what makes the art rotate.** In Art Mode > My Photos, select the imported images and start the slideshow with shuffle on, choosing a change interval (e.g. every hour or every day). **If you skip this step, the TV displays one static image forever** — the script only builds the images; all rotation is done by the TV.
+   Every `--apply` writes an undo file, and `--restore <file>` puts things back. (Manual fallback: set each image's mat to "No Mat" in the TV menu — Samsung has no global setting for it.)
+
+**Either way, finish on the TV: enable the slideshow — this is what makes the art rotate.** In Art Mode > My Photos, select the imported images and start the slideshow with shuffle on, choosing a change interval (e.g. every hour or every day). **If you skip this step, the TV displays one static image forever** — the script only builds the images; all rotation is done by the TV.
 
 ### 4. Refresh whenever you want
 
 Run the script again for a fresh batch. Set `major_artists_only: false` in config.yaml for a broader, more eclectic mix beyond the "greatest hits."
 
-A full refresh is three passes: **delete the old batch, USB-import the new one, clear the mats.** The front half is one command instead of deleting images one at a time in the TV menu:
+A full refresh is two commands, no USB: **delete the old batch, upload the new one.**
 
 ```bash
 python tv_delete.py --ip <tv-ip>           # dry run: lists what would be deleted
 python tv_delete.py --ip <tv-ip> --apply   # deletes, after you type the exact count
+python tv_upload.py --ip <tv-ip> --folder ./frame_tv_art --apply   # mat-free upload
 ```
 
-It only ever targets user-uploaded content (anything else is excluded and reported), and because deletion is irreversible on the TV there is no undo file — `--apply` asks you to type the exact count, and every run writes a manifest of what was deleted (a receipt, not an undo). Recovery is re-importing from the local `frame_tv_art/` folder. Then import the new batch (step 3) and run `tv_no_mat.py`.
+`tv_delete.py` only ever targets user-uploaded content (USB imports, My Photos, and network uploads alike; anything else is excluded and reported), and because deletion is irreversible on the TV there is no undo file — `--apply` asks you to type the exact count, and every run writes a manifest of what was deleted (a receipt, not an undo). Recovery is re-uploading from the local output folder. Then re-enable the slideshow (step 3).
 
 ### Troubleshooting: art is not rotating
 
@@ -293,8 +306,9 @@ frame-art-server/
   batch_build.py       # Main script -- run this to build a batch
   art_sources.py       # Museum API integrations (Met, AIC, CMA, Wikimedia)
   image_processor.py   # 4K processing, crop, sharpen, sRGB, metadata overlay
-  tv_no_mat.py         # Post-upload pass: set every artwork on the TV to "no mat"
-  tv_delete.py         # Pre-import pass: delete every user-uploaded artwork from the TV
+  tv_upload.py         # Network upload: push a built folder to the TV, mat-free (no USB)
+  tv_no_mat.py         # Mat-repair pass: set every artwork on the TV to "no mat"
+  tv_delete.py         # Pre-refresh pass: delete every user-uploaded artwork from the TV
   probe_matte.py       # Single-artwork TV diagnostic (what does your TV offer?)
   tv_session.py        # Shared TV pairing/token/logging plumbing (needs samsungtvws)
   config.yaml          # Configuration (queries, sources, display settings)
@@ -324,10 +338,14 @@ and planned in
 2. ~~**Post-upload no-mat pass**~~ — **built 2026-08-08**: `tv_no_mat.py` (Quick Start
    step 4), verified end-to-end against a real TV.
 3. ~~**Bulk artwork deletion**~~ — **built 2026-08-08**: `tv_delete.py` (Quick Start
-   step 4), making a full refresh delete → USB import → no-mat pass. Deletion is
-   irreversible, so it ships with a typed-count confirmation gate and a deletion manifest
-   (a receipt, not an undo). Dry run verified against a real TV; the first full destructive
-   pass runs at the next batch refresh.
+   step 4). Deletion is irreversible, so it ships with a typed-count confirmation gate and a
+   deletion manifest (a receipt, not an undo). Verified against a real TV, including the
+   first full destructive pass.
+4. ~~**Network upload**~~ — **built 2026-08-08** (unplanned; the USB step failed in
+   practice, which was the recorded trigger for reversing the April USB-only decision one
+   more notch): `tv_upload.py` pushes a built folder to the TV over the network with the mat
+   already "none", making the full refresh two commands and no USB. Probe-verified live
+   before building; still a one-shot script — no daemon, no scheduler.
 
 ---
 

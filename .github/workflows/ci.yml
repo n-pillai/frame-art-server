@@ -40,7 +40,7 @@ jobs:
           cache: "pip"
 
       - name: Compile every module
-        run: python -m compileall -q batch_build.py art_sources.py image_processor.py tv_session.py tv_no_mat.py tv_delete.py probe_matte.py
+        run: python -m compileall -q batch_build.py art_sources.py image_processor.py tv_session.py tv_no_mat.py tv_delete.py tv_upload.py probe_matte.py
 
       - name: Install only what requirements.txt declares
         run: pip install -r requirements.txt
@@ -55,7 +55,7 @@ jobs:
         run: |
           python -c "
           import batch_build, art_sources, image_processor
-          import tv_session, tv_no_mat, tv_delete, probe_matte
+          import tv_session, tv_no_mat, tv_delete, tv_upload, probe_matte
           print('all modules import against declared dependencies')
           "
 
