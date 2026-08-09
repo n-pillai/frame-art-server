@@ -24,6 +24,40 @@ import requests
 logger = logging.getLogger("frame_art.sources")
 
 # ---------------------------------------------------------------------------
+# Outbound identity — every request, not just downloads
+# ---------------------------------------------------------------------------
+# Free museum APIs increasingly reject anonymous script clients, and they do it
+# at the WAF, before any per-endpoint policy applies. Wikimedia has required a
+# descriptive User-Agent for years; AIC's 403s on 2026-08-08 turned out to be
+# the same thing (see docs/solutions/integration-issues/
+# aic-403-was-ua-filtering-and-the-bug-behind-the-fix-2026-08-08.md). So the
+# sessions are defined here, above every fetcher, and every outbound call in
+# this module goes through one of them — search and metadata included, not just
+# image downloads. The image path was the one that failed first; it was never
+# the only exposed path.
+#
+# Contact is the repo URL, never an email address.
+REPO_URL = "https://github.com/n-pillai/frame-art-server"
+
+# Wikimedia's policy asks for a descriptive UA with a way to reach the operator.
+# See: https://meta.wikimedia.org/wiki/User-Agent_policy
+_wiki_session = requests.Session()
+_wiki_session.headers.update({
+    "User-Agent": f"FrameArtServer/1.0 ({REPO_URL}; open-source art display tool)",
+})
+
+# Used for every non-Wikimedia call. AIC's WAF admits requests carrying the
+# AIC-User-Agent header their API docs ask consumers to send — matrix-testing
+# showed a descriptive User-Agent alone is NOT enough, and that the honest,
+# documented header works at the full 3840 width without masquerading as a
+# browser. Other hosts ignore the extra header.
+_art_session = requests.Session()
+_art_session.headers.update({
+    "User-Agent": f"FrameArtServer/1.0 ({REPO_URL}; open-source art display tool)",
+    "AIC-User-Agent": f"FrameArtServer ({REPO_URL})",
+})
+
+# ---------------------------------------------------------------------------
 # Landscape aspect ratio filter
 # ---------------------------------------------------------------------------
 # Samsung Frame TV is 16:9 (1.778). We only accept images that are landscape
@@ -243,7 +277,7 @@ def search_met(query: str, public_domain_only: bool = True, department_id: int =
         params["departmentIds"] = department_id
 
     try:
-        resp = requests.get(MET_SEARCH, params=params, timeout=15)
+        resp = _art_session.get(MET_SEARCH, params=params, timeout=15)
         resp.raise_for_status()
         data = resp.json()
         object_ids = data.get("objectIDs") or []
@@ -261,7 +295,7 @@ def get_met_object(object_id: int, max_retries: int = 3) -> Optional[dict]:
     """
     for attempt in range(max_retries):
         try:
-            resp = requests.get(f"{MET_OBJECT}/{object_id}", timeout=15)
+            resp = _art_session.get(f"{MET_OBJECT}/{object_id}", timeout=15)
 
             # Rate-limited — back off and retry
             if resp.status_code in (403, 429):
@@ -327,7 +361,7 @@ def search_rijksmuseum(
         params["type"] = types[0]  # e.g., "painting"
 
     try:
-        resp = requests.get(
+        resp = _art_session.get(
             RIJKS_SEARCH,
             params=params,
             headers={"Accept": "application/json"},
@@ -366,7 +400,7 @@ def resolve_rijks_object(object_uri: str) -> Optional[dict]:
         obj_id = object_uri.split("/")[-1]
         resolve_url = f"{RIJKS_DATA}/{obj_id}"
 
-        resp = requests.get(
+        resp = _art_session.get(
             resolve_url,
             headers={"Accept": "application/ld+json"},
             timeout=15,
@@ -530,7 +564,7 @@ def search_aic(
                 "limit": limit,
                 "fields": "id,title,image_id,artist_title,date_display,is_public_domain,thumbnail,classification_title,medium_display,artwork_type_title",
             }
-            resp = requests.get(AIC_SEARCH, params=params, timeout=15)
+            resp = _art_session.get(AIC_SEARCH, params=params, timeout=15)
             resp.raise_for_status()
             data = resp.json()
             artworks = data.get("data", [])
@@ -572,7 +606,7 @@ def search_cma(
         params["type"] = art_type
 
     try:
-        resp = requests.get(CMA_SEARCH, params=params, timeout=15)
+        resp = _art_session.get(CMA_SEARCH, params=params, timeout=15)
         resp.raise_for_status()
         data = resp.json()
         artworks = data.get("data", [])
@@ -589,26 +623,8 @@ def search_cma(
 # ---------------------------------------------------------------------------
 COMMONS_API = "https://commons.wikimedia.org/w/api.php"
 
-# Wikimedia requires a descriptive User-Agent or returns 403 Forbidden.
-# See: https://meta.wikimedia.org/wiki/User-Agent_policy
-_wiki_session = requests.Session()
-_wiki_session.headers.update({
-    "User-Agent": "FrameArtServer/1.0 (https://github.com/frame-art-server; open-source art display tool)",
-})
-
-# AIC's image CDN blocks script clients, discovered 2026-08-08: every IIIF
-# request — info.json included — returned 403 Forbidden, so it is client
-# filtering, not a size policy. Matrix-tested: a descriptive User-Agent alone
-# is NOT enough; their WAF admits requests carrying the AIC-User-Agent header
-# their API docs ask consumers to send (or a browser UA — we use the honest,
-# documented route). With both headers the same URLs return 200 at the full
-# 3840 width. Used for all non-Wikimedia downloads; the extra header is
-# ignored by other hosts. Contact is the repo URL, never an email.
-_art_session = requests.Session()
-_art_session.headers.update({
-    "User-Agent": "FrameArtServer/1.0 (https://github.com/n-pillai/frame-art-server; open-source art display tool)",
-    "AIC-User-Agent": "FrameArtServer (https://github.com/n-pillai/frame-art-server)",
-})
+# _wiki_session / _art_session are defined at the top of this module, above
+# every fetcher that uses them.
 
 
 def _museum_from_category(category: str) -> str:

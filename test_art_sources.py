@@ -66,6 +66,34 @@ def main():
     check("Met URL -> None (generic naming applies)",
           aic_cache_filename("https://images.metmuseum.org/CRDImages/ep/original/DT2165.jpg") is None)
 
+    print("\noutbound identity — every request identifies us, contact is reachable:")
+    import re
+    from pathlib import Path
+    from art_sources import REPO_URL, _art_session, _wiki_session
+
+    check("REPO_URL is the real repo (owner segment present)",
+          REPO_URL == "https://github.com/n-pillai/frame-art-server", REPO_URL)
+    for label, sess in (("wiki", _wiki_session), ("art", _art_session)):
+        ua = sess.headers.get("User-Agent", "")
+        check(f"{label} session sends a descriptive User-Agent",
+              ua.startswith("FrameArtServer/"), ua)
+        check(f"{label} session UA carries the reachable repo URL", REPO_URL in ua, ua)
+        check(f"{label} session UA has no email address", "@" not in ua, ua)
+    check("art session sends AIC's documented header",
+          REPO_URL in _art_session.headers.get("AIC-User-Agent", ""),
+          _art_session.headers.get("AIC-User-Agent", ""))
+    check("wiki session does NOT send the AIC header",
+          "AIC-User-Agent" not in _wiki_session.headers)
+
+    # The 2026-08-08 AIC incident was on the download path, so the download path
+    # was what got an identifying session. Search and metadata calls stayed
+    # anonymous against the same WAF. This guards the whole module, not one path.
+    source = Path(__file__).with_name("art_sources.py").read_text(encoding="utf-8")
+    bare = [line.strip() for line in source.splitlines()
+            if re.search(r"\brequests\.get\s*\(", line)]
+    check("no bare requests.get anywhere in art_sources.py",
+          not bare, f"{len(bare)} found: {bare[:3]}")
+
     print(f"\n{PASSED} passed, {len(FAILED)} failed")
     return 1 if FAILED else 0
 

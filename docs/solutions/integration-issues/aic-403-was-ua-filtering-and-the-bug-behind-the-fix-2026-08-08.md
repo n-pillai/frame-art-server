@@ -51,3 +51,26 @@ width cap. Verified live: the exact image that failed all batch downloads at 384
   before the first success.
 - Wikimedia and AIC now both demonstrate the same rule: free museum APIs increasingly reject
   anonymous script clients; every fetcher should send an identifying session from day one.
+
+## Follow-through (same day)
+
+Writing that last rule down did not apply it. An audit prompted by an unrelated question — *what
+identifying header do we actually send?* — found the fix had reached only the path that broke:
+
+- **Six search/metadata calls were still anonymous** (`search_met`, `get_met_object`,
+  `search_aic`, `search_cma`, and both Rijksmuseum calls) — bare `requests.get`, against the same
+  WAFs. AIC's search endpoint was one 403 away from repeating the incident, and the identical
+  diagnosis would have had to be made twice.
+- **The Wikimedia session's contact URL was wrong** — `github.com/frame-art-server`, missing the
+  owner segment, so it 404s. It satisfied Wikimedia's policy as a *string* while defeating its
+  purpose: the policy exists so they can reach the operator of a misbehaving client.
+
+Both fixed by hoisting `_wiki_session` / `_art_session` above every fetcher, deriving both User-Agents
+from one `REPO_URL` constant, and routing every outbound call through a session. Met, AIC, and
+Cleveland re-verified live. `test_art_sources.py` now asserts each session's UA is descriptive,
+carries the reachable repo URL, and contains no email address — plus a source scan that fails if a
+bare `requests.get` reappears in the module.
+
+**The generalizable part:** a fix lands on the path that failed, and the prevention note gets written
+about the *class*. Nothing checks the rest of the class. When a learning doc's rule is broader than
+the diff that prompted it, the gap between them is a to-do — grep for the pattern before closing.
