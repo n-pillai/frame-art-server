@@ -2,8 +2,9 @@ name: ci
 
 # Mostly a smoke check rather than a test suite: the repo has a small set of
 # real unit test files (test_logging_config.py, test_image_processor.py,
-# test_label_sanitization.py, test_tv_no_mat.py, test_tv_delete.py,
-# test_themes.py) and the rest of the steps below cover what can be checked
+# test_label_sanitization.py, test_art_sources.py, test_tv_no_mat.py,
+# test_tv_delete.py, test_tv_upload.py, test_themes.py) — every test_*.py in
+# the repo runs below — and the rest of the steps below cover what can be checked
 # without more. As real tests arrive they should replace these steps rather
 # than accumulate alongside them.
 #
@@ -79,6 +80,9 @@ jobs:
 
       - name: Theme selection logic
         run: python test_themes.py
+
+      - name: Network upload logic
+        run: python test_tv_upload.py
 
       - name: Validate config.yaml
         # Also validates the themes: catalog shape — a theme may only name the
