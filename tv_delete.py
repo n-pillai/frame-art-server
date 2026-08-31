@@ -4,8 +4,8 @@
 The front half of a batch refresh: delete the old batch, USB-import the new
 one, then run tv_no_mat.py. Today, clearing out an old batch means deleting
 images one at a time in the TV menu -- this script does that pass over the
-network instead. The delete call was verified on a real TV on 2026-08-08
-(one sacrificial artwork, gone from available() and the screen).
+network instead. Verified live on a real TV: a deleted item disappears from
+both available() and the screen.
 
 SAFETY
 ------
@@ -64,9 +64,9 @@ from tv_no_mat import dedupe_items
 from tv_session import connect
 
 USER_ID_PREFIX = "MY_F"
-# "usb" and "myphoto" observed at the C1 probe (2026-08-08); "mobile" is what
-# the TV stamps on network uploads (tv_upload.py) -- verified live the same
-# day. Without it, a network-uploaded batch would be invisible to this pass.
+# "usb" and "myphoto" observed at the probe; "mobile" is what the TV stamps
+# on network uploads (tv_upload.py). Without it, a network-uploaded batch
+# would be invisible to this pass.
 USER_CONTENT_TYPES = {"usb", "myphoto", "mobile"}
 
 PRECONDITIONS_HINT = """\
@@ -92,11 +92,11 @@ RECOVERY_HINT = (
 def in_scope(item: dict) -> bool:
     """Is *item* user-uploaded content this script is allowed to delete?
 
-    Belt and braces, both verified live on a real TV (2026-08-08): the
-    content_id must start with MY_F AND the content_type must be "usb" or
-    "myphoto". An MY_F item with a missing content_type fails the check --
-    conservative: when one of the two signals is absent, exclude and report
-    rather than trust the other alone.
+    Belt and braces, both verified live on a real TV: the content_id must
+    start with MY_F AND the content_type must be "usb" or "myphoto". An MY_F
+    item with a missing content_type fails the check -- conservative: when
+    one of the two signals is absent, exclude and report rather than trust
+    the other alone.
     """
     cid = item.get("content_id")
     if not isinstance(cid, str) or not cid.startswith(USER_ID_PREFIX):
@@ -155,7 +155,7 @@ def build_manifest(deleted: list[dict]) -> dict:
 def delete_items(art, targets: list[dict]) -> tuple[list[dict], list]:
     """Delete *targets* one at a time; one failure never aborts the pass.
 
-    Per-item delete_list([cid]) is the call shape proven live on 2026-08-08.
+    Per-item delete_list([cid]) is the call shape proven live on a real TV.
     One id per call keeps errors granular: a failed item is known by name and
     the loop moves on. Returns (deleted, failed): deleted as the full item
     dicts (the manifest wants the whole record), failed as (content_id, error).

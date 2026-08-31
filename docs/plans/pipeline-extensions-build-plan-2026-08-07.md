@@ -222,7 +222,7 @@ artwork, chosen sacrificially.
   `content_type` (`usb`/`myphoto`) as a stronger scope signal than id naming; the shipped scope
   filter requires **both** signals. Dry-run verified against the TV (144 in scope, 0 excluded);
   ⚠️ **the first full destructive pass deliberately waits for the next real batch refresh.**
-- **A** (PR #22) — five themes per Nisha (impressionist, cityscapes, old-masters,
+- **A** (PR #22) — five themes chosen (impressionist, cityscapes, old-masters,
   women-artists, landscapes — the plan's four were superseded) plus `--artist` single-artist
   pulls that bypass `major_artists_only` and the per-artist cap. All themes tuned live to
   healthy pools (156–251 candidates at `--count 100`); `cityscapes` and `women-artists` ship

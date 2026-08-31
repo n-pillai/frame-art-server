@@ -4,8 +4,8 @@
 Replaces the USB walk: batch_build.py writes a folder, this pushes it straight
 to the TV with the mat already set to "none" per image — so a full refresh is
 tv_delete.py --apply, then this, and tv_no_mat.py becomes a repair tool rather
-than a required step. Proven live 2026-08-08: art.upload() returned a working
-content_id with matte "none" applied at upload time (content_type "mobile").
+than a required step. Verified live: art.upload() returns a working content_id
+with matte "none" applied at upload time (content_type "mobile").
 
 SAFETY
 ------
