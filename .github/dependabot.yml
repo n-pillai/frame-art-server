@@ -1,9 +1,7 @@
 version: 2
 
-# The repo had no Dependabot and no CI of any kind until 2026-08-06. Pillow is
-# the reason this matters most: it parses image bytes downloaded from museum
-# APIs, which is exactly the shape of dependency that accumulates CVEs, and
-# nothing here was watching it.
+# Pillow parses image bytes from museum APIs -- exactly the kind of
+# dependency that accumulates CVEs, so it's worth watching closely.
 
 updates:
   - package-ecosystem: pip
