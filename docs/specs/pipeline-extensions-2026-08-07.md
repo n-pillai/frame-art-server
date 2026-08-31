@@ -93,4 +93,4 @@ method that de-risked B.
 
 **Sequencing:** B first — built and verified 2026-08-08. A and C remain; C is small (it rides
 on B's plumbing and safety model, minus the undo), A is the larger design job (per-source
-theme mapping). Order between them is Nisha's call per session.
+theme mapping). Order between them is decided per session.

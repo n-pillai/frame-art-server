@@ -215,8 +215,7 @@ def resolve_theme_sources(sources: dict, theme: dict) -> dict:
         resolved["major_artists_only"] = bool(theme["major_artists_only"])
     if "max_per_artist" in theme:
         # A themed batch deliberately concentrates on fewer artists, so the
-        # global variety cap (4) binds hard there — 50 cap-skips in the
-        # 2026-08-08 impressionist run. Themes may raise (or lower) it.
+        # global variety cap (4) binds hard there. Themes may raise (or lower) it.
         resolved["max_per_artist"] = int(theme["max_per_artist"])
     return resolved
 
@@ -1451,8 +1450,8 @@ The TV handles rotation. No Pi or server needed.
         logger.info(f"Single-artist batch: {args.artist}")
 
     # Themed/artist runs deepen the candidate pool: a theme narrows the query
-    # space and skews toward filter-heavy candidates, so 3x under-gathers
-    # (43/200 on the 2026-08-08 impressionist run). The default path stays 3x.
+    # space and skews toward filter-heavy candidates, so 3x under-gathers.
+    # The default path stays 3x.
     multiplier = 5 if (args.theme or args.artist) else 3
     run_batch(config, args.count, args.output, args.resume, args.dry_run,
               keywords_any=keywords_any, exempt_artist=exempt_artist,

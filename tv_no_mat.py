@@ -4,7 +4,7 @@
 After a USB import the TV shows a mat border on each new image, and its own
 menu has no global "no mat" setting -- clearing them means clicking through
 every image by hand. This script does that pass over the network instead.
-Proven end-to-end on a real TV on 2026-08-07 (probe_matte.py cleared 20/20).
+Proven end-to-end on a real TV (probe_matte.py cleared every item).
 
 SAFETY
 ------
@@ -94,7 +94,7 @@ def none_offered(matte_list) -> bool:
 def dedupe_items(items: list[dict]) -> list[dict]:
     """Collapse available() to one entry per content_id, first occurrence wins.
 
-    Observed on a real TV (2026-08-08): available() lists an artwork once per
+    Observed on a real TV: available() lists an artwork once per
     category it appears in, so the same content_id can come back several
     times. Without this, counts are inflated, --apply calls change_matte
     repeatedly on the same artwork, and the undo file gets duplicate entries.

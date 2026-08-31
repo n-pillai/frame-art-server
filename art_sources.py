@@ -92,10 +92,8 @@ MAJOR_ARTISTS = {
     "van gogh", "gauguin", "seurat", "signac", "toulouse-lautrec",
     "bazille", "frédéric bazille", "armand guillaumin", "guillaumin",
     "childe hassam", "hassam", "maximilien luce",
-    # Impressionist circle & precursors — added 2026-08-08 after the themed
-    # run's skip log named them (real painters excluded alongside stock-scan
-    # junk). Theodore Robinson stays full-name: "robinson" alone is too
-    # common a surname for substring matching.
+    # Impressionist circle & precursors. Theodore Robinson stays full-name:
+    # "robinson" alone is too common a surname for substring matching.
     "eugène boudin", "eugene boudin", "boudin",
     "henri fantin-latour", "fantin-latour",
     "george inness", "theodore robinson",
