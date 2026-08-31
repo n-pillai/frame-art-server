@@ -1,23 +1,9 @@
 name: ci
 
-# Mostly a smoke check rather than a test suite: the repo has a small set of
-# real unit test files (test_logging_config.py, test_image_processor.py,
-# test_label_sanitization.py, test_art_sources.py, test_tv_no_mat.py,
-# test_tv_delete.py, test_tv_upload.py, test_themes.py) — every test_*.py in
-# the repo runs below — and the rest of the steps below cover what can be checked
-# without more. As real tests arrive they should replace these steps rather
-# than accumulate alongside them.
-#
-# What it actually catches:
-#   1. syntax errors in any module
-#   2. an incomplete requirements.txt -- the import step installs ONLY what is
-#      declared, so a dependency used in code but missing from the file fails
-#      here instead of on a user's first run
-#   3. a config.yaml that no longer parses, or has lost a section the code
-#      reads unconditionally
-#
-# What it does NOT do: call the museum APIs. A live fetch would be flaky, slow,
-# and rude to free public endpoints.
+# Smoke check, not a full test suite: compiles every module, installs only
+# declared deps (catches missing requirements.txt entries), runs every
+# test_*.py, and validates config.yaml. Does not call the museum APIs --
+# a live fetch would be flaky and rude to free public endpoints.
 
 on:
   push:
@@ -47,12 +33,9 @@ jobs:
         run: pip install -r requirements.txt
 
       - name: Import every module against those declared deps
-        # A module used in code but absent from requirements.txt fails here.
-        # Note: importing batch_build configures logging with a FileHandler, so
-        # this writes batch_build.log into the runner. Harmless, and gitignored.
-        # The TV scripts import here too, WITHOUT samsungtvws installed (it is
-        # deliberately not in requirements.txt) -- this guards the lazy-import
-        # rule: the TV dependency must never creep up to module scope.
+        # TV scripts import here WITHOUT samsungtvws installed (deliberately
+        # not in requirements.txt) -- guards the rule that the TV dependency
+        # must stay a lazy import, never module-scope.
         run: |
           python -c "
           import batch_build, art_sources, image_processor
@@ -85,10 +68,8 @@ jobs:
         run: python test_tv_upload.py
 
       - name: Validate config.yaml
-        # Also validates the themes: catalog shape — a theme may only name the
-        # four themeable sources and the three option keys, sources may only
-        # carry queries/categories string lists. A malformed theme would
-        # otherwise fail silently at runtime (unknown keys are just ignored).
+        # Also validates theme shape -- a malformed theme fails silently at
+        # runtime otherwise, since unknown keys are just ignored.
         run: |
           python -c "
           import sys, yaml
