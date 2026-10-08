@@ -2,7 +2,7 @@
 
 Gallery-quality art for your Samsung Frame TV — powered by museum APIs, no subscription needed.
 
-Pulls public domain masterpieces from four museum APIs plus Wikimedia Commons (a gateway to the Louvre, Orsay, Prado, and dozens more), filters for landscape works by major artists, processes them to 4K with metadata labels, and outputs them ready for your Frame TV via USB.
+Pulls public domain masterpieces from three museum APIs plus Wikimedia Commons (a gateway to the Louvre, Orsay, Prado, and dozens more), filters for landscape works by major artists, processes them to 4K with metadata labels, and outputs them ready for your Frame TV via USB.
 
 A free, open-source alternative to Samsung's $5.99/month Art Store subscription.
 
