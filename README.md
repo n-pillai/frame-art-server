@@ -12,7 +12,7 @@ A free, open-source alternative to Samsung's $5.99/month Art Store subscription.
 
 ```
 Museum APIs  -->  Filter  -->  Download  -->  Process  -->  USB --> TV
-(4 APIs +        (landscape,   (hi-res       (4K crop,     (plug in
+(3 APIs +        (landscape,   (hi-res       (4K crop,     (plug in
  Wikimedia)       major         originals)    sharpen,       and go)
                   artists)                    sRGB, label)
 ```
