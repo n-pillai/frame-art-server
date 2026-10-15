@@ -2,7 +2,7 @@
 
 Gallery-quality art for your Samsung Frame TV — powered by museum APIs, no subscription needed.
 
-Pulls public domain masterpieces from three museum APIs plus Wikimedia Commons (a gateway to the Louvre, Orsay, Prado, and dozens more), filters for landscape works by major artists, processes them to 4K with metadata labels, and outputs them ready for your Frame TV via USB.
+Pulls public domain masterpieces from three museum APIs plus Wikimedia Commons (a gateway to the Louvre, Orsay, Prado, and dozens more), filters for landscape works by major artists, processes them to 4K with metadata labels, and outputs them ready to push to your Frame TV over the network (or load by USB).
 
 A free, open-source alternative to Samsung's $5.99/month Art Store subscription.
 
@@ -11,9 +11,9 @@ A free, open-source alternative to Samsung's $5.99/month Art Store subscription.
 ## How It Works
 
 ```
-Museum APIs  -->  Filter  -->  Download  -->  Process  -->  USB --> TV
-(3 APIs +        (landscape,   (hi-res       (4K crop,     (plug in
- Wikimedia)       major         originals)    sharpen,       and go)
+Museum APIs  -->  Filter  -->  Download  -->  Process  -->  Upload --> TV
+(3 APIs +        (landscape,   (hi-res       (4K crop,     (network,
+ Wikimedia)       major         originals)    sharpen,       or USB)
                   artists)                    sRGB, label)
 ```
 
@@ -44,7 +44,7 @@ pip install -r requirements.txt
 ```
 
 (Installing the three packages by name works too, but skips the minimum versions
-pinned in `requirements.txt` — `Pillow>=10.0.0` in particular, since older Pillow
+pinned in `requirements.txt` — `Pillow>=12.3.0` in particular, since older Pillow
 releases carry known image-parsing vulnerabilities and this tool decodes images
 downloaded from the internet.)
 
@@ -121,7 +121,7 @@ Only images with an aspect ratio of 1.3 or wider (roughly 4:3 and up) are accept
 
 ### Major Artists Only
 
-When `major_artists_only: true` (the default), only works by ~90 well-known artists are accepted. The list spans Impressionism, Dutch Masters, Renaissance, Romanticism, Hudson River School, Japanese art, Modern, Indian art, and others.
+When `major_artists_only: true` (the default), only works by ~130 well-known artists are accepted. The list spans Impressionism, Dutch Masters, Renaissance, Romanticism, Hudson River School, Japanese art, Modern, Indian art, and others.
 
 ### Painting Filter
 
