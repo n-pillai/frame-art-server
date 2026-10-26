@@ -1,5 +1,5 @@
 # Image processing
-Pillow>=12.3.0
+Pillow>=13.0.0
 
 # HTTP requests for museum APIs
 requests>=2.34.2
