@@ -17,3 +17,6 @@ test_painting.jpg
 # Python
 __pycache__/
 *.pyc
+
+# Claude Code "don't ask again" approvals: saved per machine, can hold typed-in secrets. Never commit.
+.claude/settings.local.json
